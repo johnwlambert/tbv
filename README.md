@@ -9,23 +9,31 @@ The Trust but Verify (TbV) dataset will be made public shortly. You can find a s
 
 The Trust but Verify (TbV) dataset is the first public dataset for the task of high-definition (HD) map change detection, i.e. determining when sensor data and map data are no longer in agreement with one another due to real-world changes. We collected TbV by mining thousands of hours of data from over 9 months of autonomous vehicle fleet operations. 
 
-
-[//]: # (YEDRWy1MYuf5IONz4gQmQwAVuVQzkovm__2020-07-02-Z1F0055, YEDRWy1MYuf5IONz4gQmQwAVuVQzkovm__2020-11-10-Z1F0014)
+[//]: # (row 1)
+[//]: # (YEDRWy1MYuf5IONz4gQmQwAVuVQzkovm__2020-07-02-Z1F0055, YEDRWy1MYuf5IONz4gQmQwAVuVQzkovm__2020-11-10-Z1F0014, blank)
+[//]: # (Nr6t0auYyTEC42fJNIqhkaSasyGjfV6E__2020-06-22-Z1F0064, Nr6t0auYyTEC42fJNIqhkaSasyGjfV6E__2020-10-12-Z1F0052)
 
 <p align="center">
   <img src="https://user-images.githubusercontent.com/16724970/131888454-791e26a0-ba8c-4152-b510-eac6acc6e8b0.jpeg" height="215">
   <img src="https://user-images.githubusercontent.com/16724970/131888462-f372ba49-4ea7-426a-922f-6aa805983616.jpeg" height="215">
-</p>
-
-[//]: # (Nr6t0auYyTEC42fJNIqhkaSasyGjfV6E__2020-06-22-Z1F0064, Nr6t0auYyTEC42fJNIqhkaSasyGjfV6E__2020-10-12-Z1F0052)
-
-<p style="margin-left: 2.5em;" align="center">
+  <img src="https://user-images.githubusercontent.com/16724970/131890666-e917acce-9329-49d4-aaf4-22d93b0165f8.jpg" height="65">
   <img src="https://user-images.githubusercontent.com/16724970/131889151-6cd72465-0fec-4be6-882e-18078c9ad48c.jpeg" height="215">
   <img src="https://user-images.githubusercontent.com/16724970/131889153-c76d60fd-24a0-4f61-82c6-114e616ca9b6.jpeg" height="215">
 </p>
 
+[//]: # (row 2)
+[//]: # (bjalGQhAZWMLh50K0poYHX6GcXxnJPom__2020-06-23-Z1F0042, 9nS3_LogId79188___2020_10_22)
+[//]: # (pbADFDy5ElABBs4vTFGnGtkQjTqIDKyD__2020-06-10-Z1F0049, pbADFDy5ElABBs4vTFGnGtkQjTqIDKyD__2020-07-23-Z1F0012____v2)
 
- The dataset, consisting of maps and logs collected in six North American cities, is one of the largest AV datasets to date with more than 7.9 million images and will be made available to the public, along with code and models under the the CC BY-NC-SA 4.0 license.
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/16724970/131891417-8da39671-adc1-45d2-bd91-e4b67f6673a4.jpeg" height="215">
+  <img src="https://user-images.githubusercontent.com/16724970/131891426-8737c7c7-40f5-4246-a101-30ac90c9743c.jpeg" height="215">
+  <img src="https://user-images.githubusercontent.com/16724970/131890666-e917acce-9329-49d4-aaf4-22d93b0165f8.jpg" height="65">
+  <img src="https://user-images.githubusercontent.com/16724970/131893541-0ef130ee-7b37-45d5-b8fa-8cf600f0f39f.jpeg" height="215">
+  <img src="https://user-images.githubusercontent.com/16724970/131893551-1e6142a1-ac96-4843-a3a2-e8083a035e3b.jpeg" height="215">
+</p>
+
+The dataset, consisting of maps and logs collected in six North American cities, is one of the largest AV datasets to date with more than 7.9 million images and will be made available to the public, along with code and models under the the CC BY-NC-SA 4.0 license.
 
 <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License</a>.
 
