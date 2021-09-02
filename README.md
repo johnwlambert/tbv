@@ -17,6 +17,14 @@ The Trust but Verify (TbV) dataset is the first public dataset for the task of h
   <img src="https://user-images.githubusercontent.com/16724970/131888462-f372ba49-4ea7-426a-922f-6aa805983616.jpeg" height="215">
 </p>
 
+[//]: # (Nr6t0auYyTEC42fJNIqhkaSasyGjfV6E__2020-06-22-Z1F0064, Nr6t0auYyTEC42fJNIqhkaSasyGjfV6E__2020-10-12-Z1F0052)
+
+<p style="margin-left: 2.5em;" align="center">
+  <img src="https://user-images.githubusercontent.com/16724970/131889151-6cd72465-0fec-4be6-882e-18078c9ad48c.jpeg" height="215">
+  <img src="https://user-images.githubusercontent.com/16724970/131889153-c76d60fd-24a0-4f61-82c6-114e616ca9b6.jpeg" height="215">
+</p>
+
+
  The dataset, consisting of maps and logs collected in six North American cities, is one of the largest AV datasets to date with more than 7.9 million images and will be made available to the public, along with code and models under the the CC BY-NC-SA 4.0 license.
 
 <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License</a>.
