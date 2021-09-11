@@ -37,16 +37,83 @@ The dataset, consisting of maps and logs collected in six North American cities,
 
 <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License</a>.
 
+## Installation
+
+First, clone the repo:
+```bash
+git clone https://github.com/johnwlambert/tbv.git
+```
+Next, install Miniconda or Anaconda, and create the conda environment:
+```bash
+conda env create -f environment_linux.yml
+conda env create -f environment_mac.yml
+```
+Note: rendering data is only supported on Linux with a CUDA-supported GPU.
+```bash
+cd tbv
+pip install -e .
+```
+When you clone the repo, the structure should be as follows:
+```
+- tbv/
+ |--- setup.py
+ |--- tbv-raytracing/
+   |---setup.py
+   |---pybind11/
+```
+Next, install `mseg-api` anywhere on your machine using:
+```bash
+git clone https://github.com/mseg-dataset/mseg-api.git
+cd mseg-api
+pip install -e .
+cd ..
+```
+Next, install `mseg-semantic` anywhere on your machine using:
+```bash
+git clone https://github.com/mseg-dataset/mseg-semantic.git
+pip install -e .
+```
+
+Next, install Eigen. On Linux, `sudo apt install libeigen3-dev`. Next, `cd tbv-raytracing` and download `pybind11` via `git clone https://github.com/pybind/pybind11.git`, where it should be downloaded into the second-level `tbv-raytracing` dir.
+Compile the GPU library using `setup.py` as follows:
+```bash
+python setup.py bdist_wheel
+pip install dist/tbv_raytracing-0.0.1-cp38-cp38-linux_x86_64.whl
+```
+
+
 ## Rendering Training Data
 
+To render data in a bird's eye view, run:
+```bash
+python scripts/run_dataset_rendering_job.py --config_name train_2021_09_04_bev_synthetic_config_t5820.yaml
+```
+
+We use the following abbreviations for city names featured in TbV:
+| City Name | Abbreviation | 
+| :-------: | :----------: |
+| Washington, DC | WDC |
+| Miami, FL | MIA |
+| Pittsburgh, PA | PIT |
+| Palo Alto, CA | PAO | 
+| Austin, TX | ATX | 
+| Detroit, MI | DTW |
 
 
 ## Training Models
 
+After rendering a dataset, you're ready to train models. Start training by running:
+```bash
+python scripts/train.py --config_name {CONFIG_NAME}
+```
 
 ## Model Evaluation
 
+```bash
+python scripts/test.py --config_name {CONFIG_NAME}
+```
 
+**Pretrained Models**: will be released shortly.
 
 ## Citing this work
 ```
