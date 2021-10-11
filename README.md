@@ -1,7 +1,7 @@
 ## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (NeurIPS '21, Official Repo)
 [John Lambert](https://johnwlambert.github.io/), [James Hays](https://www.cc.gatech.edu/~hays/)
 
-This repository contains the source code for training and evaluating models described in the preprint *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection*.
+This repository contains the source code for training and evaluating models for the paper *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection* (NeurIPS, 2021).
 
 The Trust but Verify (TbV) dataset will be made public shortly. You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
 
