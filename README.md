@@ -1,4 +1,4 @@
-## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (Official Repo)
+## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (NeurIPS '21, Official Repo)
 [John Lambert](https://johnwlambert.github.io/), [James Hays](https://www.cc.gatech.edu/~hays/)
 
 This repository contains the source code for training and evaluating models described in the preprint *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection*.
@@ -122,11 +122,12 @@ python scripts/test.py --config_name {CONFIG_NAME}
 
 ## Citing this work
 ```
-@article{Lambert21_TbV,
-  title={{Trust, but Verify}: Cross-Modality Fusion for HD Map Change Detection},
-  author={John Lambert and James Hays},
-  month={August},
-  year={2021}
+@inproceedings{Lambert21neurips_TrustButVerifyHDMapChangeDetection,
+ author = {Lambert, John W. and Hays, James},
+ booktitle = {Advances in Neural Information Processing Systems Track on Datasets and Benchmarks},
+ title = {{Trust, but Verify}: Cross-Modality Fusion for HD Map Change Detection},
+ url = {https://openreview.net/pdf?id=cXCZnLjDm4s},
+ year = {2021}
 }
 ```
 
