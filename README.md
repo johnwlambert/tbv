@@ -73,10 +73,9 @@ Next, install `mseg-semantic` anywhere on your machine using:
 git clone https://github.com/mseg-dataset/mseg-semantic.git
 pip install -e .
 ```
-Next, install `argoverse-api` anywhere on your machine, and use the following branch of a fork until the changes are merged into master:
+Next, install `av2-api` anywhere on your machine:
 ```bash
-git clone https://github.com/johnwlambert/argoverse-api
-git checkout patch-6
+pip install av2==0.1.0
 ```
 
 Next, install Eigen. On Linux, `sudo apt install libeigen3-dev`. Next, `cd tbv-raytracing` and download `pybind11` via `git clone https://github.com/pybind/pybind11.git`, where it should be downloaded into the second-level `tbv-raytracing` dir.
