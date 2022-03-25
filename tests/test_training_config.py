@@ -12,14 +12,17 @@ International License.
 Originating Authors: John Lambert
 """
 
-import tbv.utils.lidar_io as lidar_io
+"""
+Unit tests to ensure that configs (for training/testing models) can be loaded properly.
+"""
+
+import tbv.training_config as training_config
+from tbv.training_config import TrainingConfig
 
 
-def test_load_tbv_sweep_invalid_attrib_spec() -> None:
-    """Invalid attribute specification shoud lead to returning `None` for sweep."""
+def test_load_training_config_bev_file() -> None:
+    """Config should be correctly loaded as TrainingConfig."""
+    config_name = "2021_09_09_train_bev.yaml"
 
-    pt_fpath = "dummy_fname.pt"
-    # "a" and "b" are invalid, meaningless channel identifiers
-    attrib_spec = "xyzab"
-    sweep_xyzil = lidar_io.load_tbv_sweep(pt_fpath, attrib_spec)
-    assert sweep_xyzil is None
+    config = training_config.load_training_config(config_name)
+    assert isinstance(config, TrainingConfig)

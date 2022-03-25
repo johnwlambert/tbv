@@ -23,7 +23,7 @@ import logging
 import pdb
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import cv2
 import imageio
@@ -31,21 +31,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 from colour import Color
 
+import av2.rendering.color as color_utils
+import av2.utils.io as io_utils
+from av2.rendering.color import GREEN_HEX, RED_HEX
+from av2.structures.sweep import Sweep
+from av2.map.map_api import ArgoverseStaticMap
+from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
+
+from av2.geometry.camera.pinhole_camera import PinholeCamera
+
 # cv2.ocl.setUseOpenCL(False)
-import argoverse.data_loading.synchronization_database as synchronization_database
-import argoverse.utils.calibration as calib_utils
-import argoverse.utils.json_utils as json_utils
-from argoverse.data_loading.simple_track_dataloader import SimpleArgoverseTrackingDataLoader
-from argoverse.data_loading.pose_loader import get_city_SE3_egovehicle_at_sensor_t
-from argoverse.map_representation.map_api_v2 import ArgoverseStaticMapV2
+
 from argoverse.utils.cv2_plotting_utils import draw_polygon_cv2
 from argoverse.utils.camera_stats import RING_CAMERA_LIST
 
 import tbv.utils.frustum_utils as frustum_utils
 import tbv.utils.histogram_matching as histogram_matching_utils
 import tbv.utils.image_to_ground_correspondence as correspondence_utils
-import tbv.utils.logger_utils as logger_utils
-import tbv.utils.lidar_io as lidar_io
 import tbv.utils.mseg_interface as mseg_interface
 import tbv.synthetic_generation.map_perturbation as map_perturbation_engine
 import tbv.utils.triangle_grid_utils as triangle_grid_utils
@@ -71,9 +73,8 @@ logger = logging.getLogger(__name__)
 
 
 def render_orthoimagery_for_logs_raytracing(
-    maps_storage_dir: str,
-    data_dir: str,
-    label_maps_dir: str,
+    dataloader: AV2SensorDataLoader,
+    label_maps_dir: Path,
     log_id: str,
     config: BevRenderingConfig,
 ) -> None:
@@ -89,28 +90,18 @@ def render_orthoimagery_for_logs_raytracing(
     However, we do not use any LiDAR data in this function.
 
     Args:
-        maps_storage_dir:
-        data_dir:
+        dataloader: data loader to access TbV log data.
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
         log_id: string representing unique identifier for TbV log/scenario to render.
         config: specification of rendering parameters for BEV data.
     """
-    dl = SimpleArgoverseTrackingDataLoader(data_dir=data_dir, labels_dir=data_dir)
-    log_calib_data = dl.get_log_calibration_data(log_id)
+    log_map_dirpath = dataloader.get_log_map_dirpath(log_id=log_id)
+    avm = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=True)
 
-    log_map_dirpath = f"{maps_storage_dir}/{log_id}"
-    avm = ArgoverseStaticMapV2.from_json(log_map_dirpath, build_raster=True)
-
-    camera_config_dict = {}
-    cam_yaw_ego_dict = {}
-    frustum_fov_theta_dict = {}
-
-    for camera_name in RING_CAMERA_LIST:
-        camera_config = calib_utils.get_calibration_config(log_calib_data, camera_name)
-        camera_config_dict[camera_name] = camera_config
-        cam_yaw_ego, frustum_fov_theta = frustum_utils.get_frustum_parameters(camera_config)
-        cam_yaw_ego_dict[camera_name] = cam_yaw_ego
-        frustum_fov_theta_dict[camera_name] = frustum_fov_theta
+    pinhole_camera_dict = {
+        camera_name: dataloader.get_log_pinhole_camera(log_id=log_id, cam_name=camera_name)
+        for camera_name in RING_CAMERA_LIST
+    }
 
     # if car has moved significantly, re-render
     egocenter_last_rendering = np.array([0, 0])
@@ -122,16 +113,15 @@ def render_orthoimagery_for_logs_raytracing(
         camera_name: collections.deque(maxlen=RING_BUFFER_LEN) for camera_name in RING_CAMERA_LIST
     }
 
-    ply_fpaths = dl.get_ordered_log_ply_fpaths(log_id)
-    ply_fpaths.sort()
+    lidar_fpaths = dataloader.get_ordered_log_lidar_fpaths(log_id=log_id)
+    lidar_fpaths.sort()
     num_sweeps_raytraced = 0
-    for i, ply_fpath in enumerate(ply_fpaths):
+    for i, lidar_fpath in enumerate(lidar_fpaths):
 
-        logger.info(f"On sweep {i}/{len(ply_fpaths)}")
-        lidar_timestamp = Path(ply_fpath).stem.split("_")[-1]
-        lidar_timestamp = int(lidar_timestamp)
+        logger.info(f"On sweep {i}/{len(lidar_fpaths)}")
+        lidar_timestamp = int(Path(lidar_fpath).stem)
 
-        l_city_SE3_egovehicle = dl.get_city_SE3_egovehicle(log_id, lidar_timestamp)
+        l_city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, lidar_timestamp)
         if l_city_SE3_egovehicle is None:
             logger.info("missing LiDAR pose")
             continue
@@ -145,7 +135,7 @@ def render_orthoimagery_for_logs_raytracing(
         # ensure all frustums will exist
         if any(
             [
-                dl.get_closest_im_fpath(log_id, camera_name, lidar_timestamp) is None
+                dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp) is None
                 for camera_name in histogram_matching_utils.ORDERED_CAMERA_LIST
             ]
         ):
@@ -157,15 +147,14 @@ def render_orthoimagery_for_logs_raytracing(
                 # print(f'{lidar_timestamp} On {i} -> {camera_name}')
 
                 if config.make_bev_semantic_img:
-                    cam_im_fpath = dl.get_closest_seamseg_im_fpath(log_id, camera_name, lidar_timestamp)
+                    cam_im_fpath = dataloader.get_closest_seamseg_im_fpath(log_id, camera_name, lidar_timestamp)
                 else:
-                    cam_im_fpath = dl.get_closest_im_fpath(log_id, camera_name, lidar_timestamp)
+                    cam_im_fpath = dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp)
 
                 if cam_im_fpath is None or not Path(cam_im_fpath).exists():
                     logger.info("missing corresponding camera image")
                     continue
-                cam_timestamp = Path(cam_im_fpath).stem.split("_")[-1]
-                cam_timestamp = int(cam_timestamp)
+                cam_timestamp = int(Path(cam_im_fpath).stem)
 
                 if not config.render_vector_map_only:
                     rgb_img = imageio.imread(cam_im_fpath)
@@ -173,8 +162,8 @@ def render_orthoimagery_for_logs_raytracing(
 
                 if config.make_bev_semantic_img:
                     semantic_img = rgb_img
-                    img_w = camera_config_dict[camera_name].img_width
-                    img_h = camera_config_dict[camera_name].img_height
+                    img_w = pinhole_camera_dict[camera_name].width_px
+                    img_h = pinhole_camera_dict[camera_name].height_px
                     semantic_img = cv2.resize(semantic_img, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
                     # Two strategies: pretend label map is a 3-channel image, or instead use a RGB colormap for the classes.
                     # rgb_img = np.tile(rgb_img[:,:,np.newaxis], (1,1,3))
@@ -182,7 +171,7 @@ def render_orthoimagery_for_logs_raytracing(
                     rgb_img = SEAMSEG_PALETTE[semantic_img]
 
                 # egovehicle position at camera time
-                city_SE3_egovehicle = dl.get_city_SE3_egovehicle(log_id, cam_timestamp)
+                city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, cam_timestamp)
                 if city_SE3_egovehicle is None:
                     logger.info("missing camera pose")
                     continue
@@ -194,10 +183,13 @@ def render_orthoimagery_for_logs_raytracing(
 
                 # all_triangles = triangle_grid_utils.get_flat_plane_grid_triangles(range_m=10)
                 relevant_triangles, in_frustum = triangle_grid_utils.prune_triangles_to_2d_frustum(
-                    all_triangles, cam_yaw_ego_dict[camera_name], frustum_fov_theta_dict[camera_name], margin=1
+                    triangles=all_triangles,
+                    yaw=pinhole_camera_dict[camera_name].egovehicle_yaw_cam_rad,
+                    fov_theta=pinhole_camera_dict[camera_name].fov_theta_rad,
+                    margin=1
                 )
-                pruned_ratio = 1 - in_frustum.sum() / in_frustum.size
-                # print(f'Discarded {pruned_ratio * 100}% of triangles')
+                pruned_ratio = 1 - (in_frustum.sum() / in_frustum.size)
+                # print(f'Discarded {pruned_ratio * 100}% of triangles, as they fell outside of camera frustum.')
 
                 if config.filter_ground_with_semantics:
                     img_fname_stem = Path(cam_im_fpath).stem
@@ -213,15 +205,12 @@ def render_orthoimagery_for_logs_raytracing(
                     nearby_triangles=relevant_triangles,
                     label_map=label_map,
                     cam_timestamp=cam_timestamp,
-                    camera_name=camera_name,
                     rgb_img=rgb_img,
                     city_SE3_egovehicle=city_SE3_egovehicle,
-                    camera_config=camera_config_dict[camera_name],
+                    pinhole_camera=pinhole_camera_dict[camera_name],
                 )
                 if config.filter_ground_with_map:
-                    is_ground = avm.raster_ground_height_layer.get_ground_points_boolean(
-                        point_cloud=frustum_city_pts
-                    )
+                    is_ground = avm.raster_ground_height_layer.get_ground_points_boolean(points_xyz=frustum_city_pts)
                     frustum_city_pts = frustum_city_pts[is_ground]
                     frustum_rgb_vals = frustum_rgb_vals[is_ground]
 
@@ -239,11 +228,11 @@ def render_orthoimagery_for_logs_raytracing(
 
         # print(f"Rerendering scene because threshold is {EGOMOTION_DIST_THRESH_M}")
         # if corresponding_city_pts is not None:
-        # 	print("Number of points to render with: ", corresponding_city_pts.shape)
+        #   print("Number of points to render with: ", corresponding_city_pts.shape)
 
         # if corresponding_city_pts.shape[0] < int(1e6):
-        # 	print(f'Skipping because only {corresponding_city_pts.shape[0]} points')
-        # 	continue
+        #   print(f'Skipping because only {corresponding_city_pts.shape[0]} points')
+        #   continue
 
         num_sweeps_raytraced += 1
         if num_sweeps_raytraced < N_SWEEPS_BEFORE_RENDERING:
@@ -269,12 +258,10 @@ def render_orthoimagery_for_logs_raytracing(
         render_scene(
             ego_center=ego_center,
             config=config,
-            dl=dl,
+            dataloader=dataloader,
             log_id=log_id,
-            data_dir=data_dir,
             label_maps_dir=label_maps_dir,
             avm=avm,
-            maps_storage_dir=maps_storage_dir,
             timestamp=lidar_timestamp,
             all_city_pts=accumulated_city_pts,
             all_rgb_vals=accumulated_rgb_vals,
@@ -285,10 +272,9 @@ def render_orthoimagery_for_logs_raytracing(
 
 
 def render_orthoimagery_for_logs_noraytracing(
-    maps_storage_dir: str,
-    data_dir: str,
-    label_maps_dir: str,
-    log_ids: str,
+    dataloader: AV2SensorDataLoader,
+    label_maps_dir: Path,
+    log_id: str,
     config: BevRenderingConfig,
 ) -> None:
     """Render orthoimagery without using any ray-tracing, but rather by finding sparse correspondences
@@ -298,33 +284,27 @@ def render_orthoimagery_for_logs_noraytracing(
     all ring camera frustums at least once.
 
     Args:
-        maps_storage_dir:
-        data_dir:
+        dataloader: dataloader.
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
         log_id: string representing unique identifier for TbV log/scenario to render.
         config: specification of rendering parameters for BEV data.
     """
-    dl = SimpleArgoverseTrackingDataLoader(data_dir=data_dir, labels_dir=data_dir)
-
-    log_calib_data = dl.get_log_calibration_data(log_id)
+    log_map_dirpath = dataloader.get_log_map_dirpath(log_id=log_id)
+    avm = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=True)
 
     # we will continually append to this arrays as new sensor data arrives.
     all_city_pts = np.zeros((0, 3), dtype=np.float32)
     all_rgb_vals = np.zeros((0, 3), dtype=np.uint8)
 
-    log_map_dirpath = f"{maps_storage_dir}/{log_id}"
-    avm = ArgoverseStaticMapV2.fom_json(log_map_dirpath)
-
-    camera_config_dict = {}
+    pinhole_camera_dict = {}
     im_fpath_cname_ts_tuples = []
 
     # for each camera frustum
     for camera_name in RING_CAMERA_LIST:
         logger.info(f"On camera {camera_name}")
 
-        cam_im_fpaths = dl.get_ordered_log_cam_fpaths(log_id, camera_name)
-        camera_config = calib_utils.get_calibration_config(log_calib_data, camera_name)
-        camera_config_dict[camera_name] = camera_config
+        cam_im_fpaths = dataloader.get_ordered_log_cam_fpaths(log_id, camera_name)
+        pinhole_camera_dict[camera_name] = dataloader.get_log_pinhole_camera(log_id=log_id, cam_name=camera_name)
 
         for cam_im_fpath in cam_im_fpaths:
             cam_timestamp = Path(cam_im_fpath).stem.split("_")[-1]
@@ -347,33 +327,32 @@ def render_orthoimagery_for_logs_noraytracing(
     else:
         # load all of the LiDAR points once, in advance (not too many of them anyway)
         city_pts_w_reflectance = load_localized_log_reflectance_values(
-            dl, log_id, data_dir, label_maps_dir, config, avm
+            dataloader=dataloader, log_id=log_id, label_maps_dir=label_maps_dir, config=config, avm=avm
         )
 
     for i, (im_fpath, camera_name, cam_timestamp) in enumerate(im_fpath_cname_ts_tuples):
 
         frustums_seen.add(camera_name)
-        img_fname = Path(im_fpath).name
         logger.info(f"\tOn {i+1}/{len(im_fpath_cname_ts_tuples)}")
         img_fname_stem = Path(im_fpath).stem
 
-        # load PLY file path, e.g. 'PC_315978406032859416.ply'
-        ply_fpath = dl.get_closest_lidar_fpath(log_id, cam_timestamp)
-        if ply_fpath is None:
+        # load PLY file path, e.g. '315978406032859416.feather'
+        lidar_fpath = dataloader.get_closest_lidar_fpath(log_id, cam_timestamp_ns=cam_timestamp)
+        if lidar_fpath is None:
             logger.info("missing ply")
             continue
-        lidar_pts = lidar_io.load_tbv_sweep(ply_fpath, attrib_spec="xyz")
+        lidar_pts = io_utils.read_lidar_sweep(lidar_fpath, attrib_spec="xyz")
 
         # egovehicle position at camera time
-        city_SE3_egovehicle = dl.get_city_SE3_egovehicle(log_id, cam_timestamp)
+        city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, cam_timestamp)
         if city_SE3_egovehicle is None:
             logger.info("missing camera pose")
             continue
 
-        lidar_timestamp = Path(ply_fpath).stem.split("_")[-1]
+        lidar_timestamp = Path(lidar_fpath).stem
         lidar_timestamp = int(lidar_timestamp)
 
-        l_city_SE3_egovehicle = dl.get_city_SE3_egovehicle(log_id, lidar_timestamp)
+        l_city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id=log_id, timestamp_ns=lidar_timestamp)
         if l_city_SE3_egovehicle is None:
             logger.info("missing LiDAR pose")
             continue
@@ -394,15 +373,13 @@ def render_orthoimagery_for_logs_noraytracing(
                 config=config,
                 label_map=label_map,
                 log_id=log_id,
-                data_dir=data_dir,
-                log_calib_data=log_calib_data,
+                dataloader=dataloader,
                 cam_timestamp=cam_timestamp,
                 lidar_timestamp=lidar_timestamp,
                 lidar_pts=lidar_pts,
                 camera_name=camera_name,
                 rgb_img=rgb_img,
                 city_SE3_egovehicle=city_SE3_egovehicle,
-                camera_config=camera_config_dict[camera_name],
             )
 
             all_city_pts = np.vstack([all_city_pts, city_pts])
@@ -419,7 +396,7 @@ def render_orthoimagery_for_logs_noraytracing(
         # Alternative: could instead filter based on the sparsity of the un-interpolated image
         # # not much will be visible with less than 3 million points
         # if all_city_pts.shape[0] < int(3e6):
-        # 	continue
+        #   continue
 
         ego_center = l_city_SE3_egovehicle.translation.squeeze()[:2]
 
@@ -430,18 +407,16 @@ def render_orthoimagery_for_logs_noraytracing(
             if all_city_pts is not None:
                 print("Number of points to render with: ", all_city_pts.shape)
             render_scene(
-                ego_center,
-                config,
-                dl,
-                log_id,
-                data_dir,
-                label_maps_dir,
-                avm,
-                maps_storage_dir,
-                cam_timestamp,
-                all_city_pts,
-                all_rgb_vals,
-                copy.deepcopy(city_pts_w_reflectance),
+                ego_center=ego_center,
+                config=config,
+                dataloader=dataloader,
+                log_id=log_id,
+                label_maps_dir=label_maps_dir,
+                avm=avm,
+                timestamp=cam_timestamp,
+                all_city_pts=all_city_pts,
+                all_rgb_vals=all_rgb_vals,
+                city_pts_w_reflectance=copy.deepcopy(city_pts_w_reflectance),
             )
             # update latest
             egocenter_last_rendering = ego_center
@@ -450,12 +425,10 @@ def render_orthoimagery_for_logs_noraytracing(
 def render_scene(
     ego_center: np.ndarray,
     config: BevRenderingConfig,
-    dl: SimpleArgoverseTrackingDataLoader,
+    dataloader: AV2SensorDataLoader,
     log_id: str,
-    data_dir: str,
-    label_maps_dir: str,
-    avm: ArgoverseStaticMapV2,
-    maps_storage_dir: str,
+    label_maps_dir: Path,
+    avm: ArgoverseStaticMap,
     timestamp: int,
     all_city_pts: np.ndarray,
     all_rgb_vals: np.ndarray,
@@ -468,12 +441,10 @@ def render_scene(
     Args:
         ego_center: array of shape (2,) representing (x,y) coordinates of AV/ego-vehicle in world frame.
         config: specification of rendering parameters for BEV data.
-        dl:
+        dataloader: dataloader.
         log_id: string representing unique identifier for TbV log/scenario to render.
-        data_dir:
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
         avm: local map for TbV log/scenario.
-        maps_storage_dir:
         timestamp: nanosecond timestamp for ???
         all_city_pts: array of shape (N,3) representing 3d points, either intersection points where camera rays
             hit the ground surface, or coordinates of LiDAR returns classified as belonging to the ground.
@@ -486,11 +457,12 @@ def render_scene(
     dirname += f"_maxrange{config.max_ground_mesh_range_m}"
     dirname += f"_filter_ground_w_semantics{config.filter_ground_with_semantics}"
     dirname += f"_filter_ground_w_map{config.filter_ground_with_map}"
-    dirname += f"_res{config.resolution}"
-    dirname += f"_prune_egocenter_{config.dilation}m"
+    dirname += f"_res{config.resolution_m_per_px}"
+    dirname += f"_prune_egocenter_{config.range_m}m"
 
+    x, y = ego_center[:2]
     logger.info(
-        f"Centered in city at (x={ego_center[0]*config.resolution:.2f}" + f",y={ego_center[1]*config.resolution:.2f})"
+        f"Centered in city at (x={x*config.resolution_m_per_px:.2f}" + f",y={y*config.resolution_m_per_px:.2f})"
     )
 
     if not config.render_vector_map_only and not config.render_reflectance_only:
@@ -617,17 +589,16 @@ def normalize_array(arr: np.ndarray, max_val: float = 255) -> np.ndarray:
 
 
 def load_localized_log_reflectance_values(
-    dl: SimpleArgoverseTrackingDataLoader,
+    dataloader: AV2SensorDataLoader,
     log_id: str,
-    dataset_dir: str,
-    label_maps_dir: str,
+    label_maps_dir: Path,
     config: BevRenderingConfig,
-    avm: ArgoverseStaticMapV2,
+    avm: ArgoverseStaticMap,
 ) -> np.ndarray:
     """
 
     Args:
-        dl
+        dataloader:
         log_id: string representing unique identifier for TbV log/scenario to render.
         dataset_dir
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
@@ -638,20 +609,21 @@ def load_localized_log_reflectance_values(
         all_city_pts_w_refl: array of shape (N,4), representing city point coordinates w/ reflectance values
     """
     all_city_pts_w_refl = np.zeros((0, 4))
-    sensor_folder_wildcard = f"{dataset_dir}/{log_id}/lidar/PC_*.ply"
-    lidar_timestamps = synchronization_database.get_timestamps_from_sensor_folder(sensor_folder_wildcard)
+
+    lidar_fpaths = dataloader.get_ordered_log_lidar_fpaths(log_id=log_id)
+    lidar_timestamps = [int(p.stem) for p in lidar_fpaths]
     for lidar_timestamp in lidar_timestamps:
 
-        city_SE3_egovehicle = get_city_SE3_egovehicle_at_sensor_t(lidar_timestamp, dataset_dir, log_id)
+        city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id=log_id, timestamp_ns=lidar_timestamp)
         if city_SE3_egovehicle is None:
             logger.info("Missing pose")
             continue
 
-        ply_fpath = f"{dataset_dir}/{log_id}/lidar/PC_{lidar_timestamp}.ply"
+        lidar_fpath = Path(dataset_dir) / log_id / "lidar" / f"{lidar_timestamp}.feather"
         # load with associated LiDAR intensity
-        lidar_pts = lidar_io.load_tbv_sweep(ply_fpath, attrib_spec="xyzi")
-        ego_xyz = lidar_pts[:, :3]
-        ego_reflectance = lidar_pts[:, 3].reshape(-1, 1)
+        sweep_ego = Sweep.from_feather(lidar_fpath)
+        ego_xyz = sweep_ego.xyz
+        ego_reflectance = sweep_ego.intensity.reshape(-1, 1)
         city_xyz = city_SE3_egovehicle.transform_point_cloud(ego_xyz)
 
         # logic doesn't support doing both right now
@@ -659,11 +631,15 @@ def load_localized_log_reflectance_values(
 
         if config.filter_ground_with_semantics:
             is_ground = correspondence_utils.filter_to_ground_projected_pixels(
-                ego_xyz, dl, log_id, dataset_dir, lidar_timestamp, label_maps_dir
+                lidar_pts=ego_xyz,
+                loader=dataloader,
+                log_id=log_id,
+                lidar_timestamp=lidar_timestamp,
+                label_maps_dir=label_maps_dir,
             )
         elif config.filter_ground_with_map:
             # use the map for the classification
-            is_ground = avm.raster_ground_height_layer.get_ground_points_boolean(point_cloud=city_xyz)
+            is_ground = avm.raster_ground_height_layer.get_ground_points_boolean(points_xyz=city_xyz)
 
         ground_city_pts = np.hstack([city_xyz[is_ground], ego_reflectance[is_ground]])
         all_city_pts_w_refl = np.vstack([all_city_pts_w_refl, ground_city_pts])
@@ -671,15 +647,66 @@ def load_localized_log_reflectance_values(
     return all_city_pts_w_refl
 
 
+def render_virtual_ground_mesh_img(
+    relevant_triangles: triangle_grid_utils.TRIANGLES_TYPE,
+    pinhole_camera: PinholeCamera,
+    camera_name: str,
+    visualize: bool = False,
+) -> None:
+    """
+    Args:
+        relevant_triangles:
+        pinhole_camera or dataloader
+        camera_name:
+        visualize:
+    """
+    pinhole_camera = dataloader.get_log_pinhole_camera(log_id=log_id, cam_name=camera_name)
+
+    img = np.zeros((pinhole_camera.height_px, pinhole_camera.width_px, 3), dtype=np.uint8)
+
+    NUM_RANGE_BINS = 20
+    # repeat green to red colormap every 50 m.
+    colors_arr = color_utils.create_colormap(colorlist=[RED_HEX, GREEN_HEX], n_colors=NUM_RANGE_BINS)
+
+    for tri in relevant_triangles:
+        uv, points_cam, valid_pts_bool = pinhole_camera.project_ego_to_img(points_ego=np.array(tri), remove_nan=False)
+        if valid_pts_bool.sum() < 3:
+            continue
+
+        points_cam = points_cam[valid_pts_bool]
+        pt_ranges = np.linalg.norm(points_cam[:, :3], axis=1)
+        range_m = np.mean(pt_ranges)
+        rgb_bin = np.round(range_m).astype(np.int32)
+        # account for moving past 100 meters, loop around again
+        rgb_bin = rgb_bin % NUM_RANGE_BINS
+        uv_color = (255 * colors_arr[rgb_bin]).astype(np.int32).reshape(-1, 3)
+        uv_color_bgr = np.fliplr(uv_color).squeeze()
+        uv_color_bgr = tuple([int(x) for x in uv_color_bgr])
+        img = draw_polygon_cv2(uv, img, uv_color_bgr)
+
+    if visualize:
+        plt.imshow(img[:, :, ::-1])
+        plt.show()
+
+
+def test_render_virtual_ground_mesh_img() -> None:
+    """ """
+    camera_name = "ring_front_center"
+    log_id = "allison-arkansas-wdc-new-bollards"
+
+    relevant_triangles = triangle_grid_utils.get_flat_plane_grid_triangles(range_m=20)
+    dataloader = None
+    render_virtual_ground_mesh_img(relevant_triangles, dataloader, camera_name)
+
+
 def execute_orthoimagery_job(
-    maps_storage_dir: str, data_dir: str, label_maps_dir: str, log_id: str, config: BevRenderingConfig
+    dataloader: AV2SensorDataLoader, label_maps_dir: Path, log_id: str, config: BevRenderingConfig
 ) -> None:
     """Render the orthoimagery for a single log, either using ray-tracing for dense ground-to-image correspondence,
     or instead use image-LiDAR projection for sparse ground-to-image correspondence.
 
     Args:
-        maps_storage_dir:
-        data_dir:
+        dataloader: dataloader.
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
         log_id: string representing unique identifier for TbV log/scenario to render.
         config: specification of rendering parameters for BEV data (holds all experiment parameters).
@@ -688,14 +715,17 @@ def execute_orthoimagery_job(
 
     start = time.time()
     if config.projection_method == "ray_tracing":
-        render_orthoimagery_for_logs_raytracing(maps_storage_dir, data_dir, label_maps_dir, log_id, config)
+        render_orthoimagery_for_logs_raytracing(
+            dataloader=dataloader, label_maps_dir=label_maps_dir, log_id=log_id, config=config
+        )
 
     elif config.projection_method == "lidar_projection":
-        render_orthoimagery_for_logs_noraytracing(maps_storage_dir, data_dir, label_maps_dir, log_id, config)
+        render_orthoimagery_for_logs_noraytracing(
+            dataloader=dataloader, label_maps_dir=label_maps_dir, log_id=log_id, config=config
+        )
     else:
         raise RuntimeError("Unknown lidar-pixel correspondence method")
 
     end = time.time()
     duration = end - start
     logger.info(f"Generated orthoimagery for logs in: {duration} sec.")
-

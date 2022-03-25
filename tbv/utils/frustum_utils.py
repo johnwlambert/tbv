@@ -16,49 +16,6 @@ from typing import Tuple
 
 import numpy as np
 
-from argoverse.utils.calibration import CameraConfig
-from argoverse.utils.se3 import SE3
-
-
-def get_frustum_parameters(camera_config: CameraConfig, verbose: bool = False) -> Tuple[float, float]:
-    """Compute the field of view of a camera frustum to use for view frustum culling during rendering.
-
-    R takes the x axis to be a vector equivalent to the first column
-    of R. Similarly, the y and z axes are transformed to be the second
-    and third columns.
-
-    Args:
-        camera_config:
-        verbose: whether to dump to stdout information about frustum field of view.
-
-    Returns:
-        cam_yaw_ego: float representing clockwise angle from x=0 (in radians)
-        fov_theta: angular extent of camera's field of view (measured in radians)
-    """
-    camera_SE3_egovehicle = camera_config.extrinsic
-    camera_R_egovehicle = camera_SE3_egovehicle[:3, :3]
-    camera_SE3_egovehicle = SE3(rotation=camera_R_egovehicle, translation=np.zeros(3))
-
-    I = np.eye(3)
-    transformed_axes = camera_SE3_egovehicle.transform_point_cloud(I)
-
-    new_x_axis = transformed_axes[:, 2]
-    dx, dy, dz = new_x_axis
-
-    cam_yaw_ego = np.arctan2(dy, dx)
-
-    fx = camera_config.intrinsic[0, 0]
-    fy = camera_config.intrinsic[1, 1]
-
-    # return in radians
-    fov_theta = 2 * np.arctan(camera_config.img_width / fx)
-
-    if verbose:
-        logger.info(f"\tComputed yaw={np.rad2deg(cam_yaw_ego):.2f} for this ring camera.")
-        logger.info(f"\tComputed fov={np.rad2deg(fov_theta):.2f} for this ring camera.")
-
-    return cam_yaw_ego, fov_theta
-
 
 def get_frustum_side_normals(fov_theta: float) -> Tuple[np.ndarray, np.ndarray]:
     """Get normal vectors for left and right clipping planes of a camera/view frustum.

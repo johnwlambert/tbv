@@ -12,21 +12,21 @@ International License.
 Originating Authors: John Lambert
 """
 
-import imageio
-import matplotlib.pyplot as plt
+"""Utilities to provide egovehicle foreground/background masks."""
+
+import av2.utils.raster as raster_utils
 import numpy as np
-from mseg.utils.mask_utils import get_mask_from_polygon
 
 
 # front-center camera has `portrait-mode` aspect ratio.
 TBV_RING_FRONT_CENTER_IMG_HEIGHT = 2048
 TBV_RING_FRONT_CENTER_IMG_WIDTH = 1550
 
-TBV_RING_REAR_RIGHT_IMG_HEIGHT = 1550
-TBV_RING_REAR_RIGHT_IMG_WIDTH = 2048
+TBV_RING_REAR_RIGHT_IMG_HEIGHT = 775
+TBV_RING_REAR_RIGHT_IMG_WIDTH = 1024
 
-TBV_RING_REAR_LEFT_IMG_HEIGHT = 1550
-TBV_RING_REAR_LEFT_IMG_WIDTH = 2048
+TBV_RING_REAR_LEFT_IMG_HEIGHT = 775
+TBV_RING_REAR_LEFT_IMG_WIDTH = 1024
 
 
 def filter_out_egovehicle(uv: np.ndarray, camera_name: str) -> np.ndarray:
@@ -67,8 +67,8 @@ def get_z1_ring_front_center_mask() -> np.ndarray:
     polygon_verts = np.array(
         [[0, 2048], [0, 1887], [303, 1804], [602, 1765], [951, 1780], [1256, 1800], [1544, 1880], [1549, 2048]]
     )
-    mask = get_mask_from_polygon(
-        polygon_verts, img_h=TBV_RING_FRONT_CENTER_IMG_HEIGHT, img_w=TBV_RING_FRONT_CENTER_IMG_WIDTH
+    mask = raster_utils.get_mask_from_polygons(
+        [polygon_verts], img_h=TBV_RING_FRONT_CENTER_IMG_HEIGHT, img_w=TBV_RING_FRONT_CENTER_IMG_WIDTH
     )
     return mask.astype(bool)
 
@@ -80,10 +80,11 @@ def get_z1_ring_rear_right_mask() -> np.ndarray:
         mask: boolean array of shape (H,W)
     """
     polygon_verts = np.array(
-        [[511, 1549], [511, 1540], [985, 1376], [1203, 1334], [1405, 1305], [2046, 1318], [2047, 1549]]
+        [[511, 1549], [511, 1540], [985, 1376], [1203, 1334], [1405, 1305], [2046, 1318], [2047, 1549]], dtype=float
     )
-    mask = get_mask_from_polygon(
-        polygon_verts, img_h=TBV_RING_REAR_RIGHT_IMG_HEIGHT, img_w=TBV_RING_REAR_RIGHT_IMG_WIDTH
+    polygon_verts *= 0.5  # rear has half the resolution as ring_front_center.
+    mask = raster_utils.get_mask_from_polygons(
+        [polygon_verts], img_h=TBV_RING_REAR_RIGHT_IMG_HEIGHT, img_w=TBV_RING_REAR_RIGHT_IMG_WIDTH
     )
     return mask.astype(bool)
 
@@ -107,9 +108,11 @@ def get_z1_ring_rear_left_mask() -> np.ndarray:
             [1539, 1540],
             [1539, 1549],
             [0, 1549],
-        ]
+        ],
+        dtype=float,
     )
-    mask = get_mask_from_polygon(
-        polygon_verts, img_h=TBV_RING_REAR_LEFT_IMG_HEIGHT, img_w=TBV_RING_REAR_LEFT_IMG_WIDTH
+    polygon_verts *= 0.5  # rear has half the resolution as ring_front_center.
+    mask = raster_utils.get_mask_from_polygons(
+        [polygon_verts], img_h=TBV_RING_REAR_LEFT_IMG_HEIGHT, img_w=TBV_RING_REAR_LEFT_IMG_WIDTH
     )
     return mask.astype(bool)

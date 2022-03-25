@@ -13,10 +13,14 @@ Originating Authors: John Lambert
 """
 
 import logging
+from pathlib import Path
 
 import argoverse.utils.datetime_utils as datetime_utils
 
 import tbv.utils.dir_utils as dir_utils
+
+
+LOGGING_DIR = Path(__file__).resolve().parent.parent.parent / "logging_output"
 
 
 def get_logger() -> logging.Logger:
@@ -35,11 +39,11 @@ def get_logger() -> logging.Logger:
     return logger
 
 
-def setup_logging(home_dir: str) -> None:
+def setup_logging() -> None:
     """Set up a Python logger that writes a log file to disk."""
     date_str = datetime_utils.generate_datetime_string()
-    log_output_fpath = f"{home_dir}/logging/tbv_rendering_program_{date_str}.log"
-    dir_utils.check_mkdir(f"{home_dir}/logging")
+    log_output_fpath = LOGGING_DIR / f"tbv_rendering_program_{date_str}.log"
+    LOGGING_DIR.mkdir(exist_ok=True, parents=True)
     print(f"Log will be saved to {log_output_fpath}")
 
     logging.basicConfig(

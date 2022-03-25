@@ -27,6 +27,7 @@ class RenderingConfig:
 
     Args:
         num_processes
+        range_m: maximum range from egovehicle to consider for rendering (by l-infinity norm).
         tbv_dataroot: path to root TbV Dataset directory.
         viewpoint: dataset rendering perspective, either "bev" or "egoview"
     """
@@ -37,7 +38,7 @@ class RenderingConfig:
     render_reflectance: bool
     recompute_segmentation: bool
 
-    dilation: float  # 20 m in all directions
+    range_m: float  # 20 m in all directions
 
     tbv_dataroot: str
     rendered_dataset_dir: str
@@ -66,6 +67,10 @@ class BevRenderingConfig(RenderingConfig):
     Args:
         projection_method: for BEV only, either to use 'ray_tracing' for correspondences, or 'lidar_projection'
             TODO: make it a enum
+        use_histogram_matching
+        sensor_img_interp_type: string representing type of interpolation to apply to senor data representation
+            (can be "None")
+        semantic_img_interp_type:
     """
 
     projection_method: str
@@ -75,14 +80,15 @@ class BevRenderingConfig(RenderingConfig):
     filter_ground_with_semantics: bool  # quite expensive
     filter_ground_with_map: bool  # using ground height
     max_ground_mesh_range_m: float  # trace rays to triangles up to 20 m away
-    resolution: float  # meters/pixel
+    resolution_m_per_px: float  # meters/pixel
     use_median_filter: bool
-    sensor_img_interp_type: str  # linear for rgb, but nearest for label map
+    sensor_img_interp_type: str  # linear for rgb, but nearest for label map, or "None"
     # linear for rgb, but nearest for label map, if not rendering semantics, optional
-    semantic_img_interp_type: Optional[str] = None  
+    semantic_img_interp_type: Optional[str] = None
+    sensor_modality: str = "rgb"  # `rgb` or `reflectance`?
 
 
-def get_bev_rendering_config(config_name: str) -> BevRenderingConfig:
+def load_bev_rendering_config(config_name: str) -> BevRenderingConfig:
     """Get experiment config for rendering maps and sensor data in a bird's eye view."""
     with hydra.initialize_config_module(config_module="tbv.configs"):
         # config is relative to the tbv module
@@ -92,7 +98,7 @@ def get_bev_rendering_config(config_name: str) -> BevRenderingConfig:
     return config
 
 
-def get_egoview_rendering_config(config_name: str) -> EgoviewRenderingConfig:
+def load_egoview_rendering_config(config_name: str) -> EgoviewRenderingConfig:
     """Get experiment config for rendering maps and sensor data in the ego-view."""
     with hydra.initialize_config_module(config_module="tbv.configs"):
         # config is relative to the tbv module
@@ -102,12 +108,12 @@ def get_egoview_rendering_config(config_name: str) -> EgoviewRenderingConfig:
     return config
 
 
-def get_rendering_config(config_name: str) -> Union[EgoviewRenderingConfig, BevRenderingConfig]:
+def load_rendering_config(config_name: str) -> Union[EgoviewRenderingConfig, BevRenderingConfig]:
     """Load from disk the parameters for rendering sensor+map data (from a yaml file)."""
     try:
-        config = get_egoview_rendering_config(config_name)
+        config = load_egoview_rendering_config(config_name)
     except:
-        config = get_bev_rendering_config(config_name)
+        config = load_bev_rendering_config(config_name)
 
     # if not (isinstance(config, EgoviewRenderingConfig) or isinstance(config, BevRenderingConfig)):
     #     raise RuntimeError("Invalid config.")

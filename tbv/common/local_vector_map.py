@@ -21,11 +21,14 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
+import av2.geometry.infinity_norm_utils as infinity_norm_utils
+import av2.geometry.interpolate as interp_utils
 import numpy as np
-from argoverse.utils.interpolate import interp_arc
-from argoverse.map_representation.map_api_v2 import ArgoverseStaticMapV2, LaneSegment, LocalLaneMarking
+from av2.map.lane_segment import LocalLaneMarking
+from av2.map.map_api import ArgoverseStaticMap
 
-import tbv.utils.infinity_norm_utils as infinity_norm_utils
+from tbv.common.tbv_lane_segment import TbvLaneSegment
+
 
 PED_XING_INTERSECTION_PROB = 0.9
 PED_XING_NONINTERSECTION_PROB = 0.2
@@ -38,11 +41,17 @@ EGOVEHICLE_TO_FRINGE_DIST_M = 5
 
 
 class LocalPedCrossing(NamedTuple):
-    """
+    """Represents a pedestrian crossing (i.e. crosswalk) as two edges along its principal axis.
+
+    Both lines should be pointing in nominally the same direction and a pedestrian is expected to
+    move either roughly parallel to both lines or anti-parallel to both lines.
+
     Args:
-        edge1: array of shape ()
-        edge2: array of shape ()
+        edge1: array of shape (2,3) representing one edge of the crosswalk, with 2 waypoints (3d polyline)
+        edge2: array of shape (2,3) representing the other edge of the crosswalk, with 2 waypoints (3d polyline).
+        is_nearby:
     """
+
     edge1: np.ndarray
     edge2: np.ndarray
     is_nearby: bool = True  # assume new synthetic xwalk will be nearby, who cares if not deleting
@@ -53,7 +62,7 @@ class LocalPedCrossing(NamedTuple):
 
 
 class LocalVectorMap:
-    def __init__(self, avm: ArgoverseStaticMapV2, ego_center: np.ndarray, dilation: float) -> None:
+    def __init__(self, avm: ArgoverseStaticMap, ego_center: np.ndarray, range_m: float) -> None:
         """Class to assist with vector map perturbation, using knowledge of the lane graph topology.
 
         Note: In the ego-view, we use the `changed_points` attribute to determine whether or not a
@@ -62,15 +71,15 @@ class LocalVectorMap:
         Args:
             avm: local map for TbV log/scenario.
             ego_center: array of shape (x,y) representing the 2d coordinates of the ego-vehicle/AV in city frame.
-            dilation: maximum distance in l-infinity norm from origin (egovehicle) for entities that will be rendered.
+            range_m: maximum distance in l-infinity norm from origin (egovehicle) for entities that will be rendered.
         """
-        self.avm: ArgoverseStaticMapV2 = avm
+        self.avm: ArgoverseStaticMap = avm
         self.ped_crossing_edges: List[LocalPedCrossing] = []
         self.stoplines: List[np.ndarray] = []
-        self.nearby_lane_segment_dict: Dict[int, LaneSegment] = {}
+        self.nearby_lane_segment_dict: Dict[int, TbvLaneSegment] = {}
         self.nearby_lane_markings: List[LocalLaneMarking] = []
         self.ego_center: np.ndarray = ego_center
-        self.dilation: float = dilation
+        self.range_m: float = range_m
         self.changed_points: Optional[np.ndarray] = None
 
     def get_nonfringe_lane_ids(self) -> List[int]:
@@ -80,11 +89,8 @@ class LocalVectorMap:
         return [
             lane_id
             for lane_id, vls in self.nearby_lane_segment_dict.items()
-            if infinity_norm_utils.lane_bounds_in_infty_norm_radius(
-                vls.right_lane_boundary.xyz,
-                vls.left_lane_boundary.xyz,
-                self.ego_center,
-                self.dilation - EGOVEHICLE_TO_FRINGE_DIST_M,
+            if vls.is_within_l_infinity_norm_radius(
+                query_center=self.ego_center, search_radius_m=(self.range_m - EGOVEHICLE_TO_FRINGE_DIST_M)
             )
         ]
 
@@ -93,13 +99,13 @@ class LocalVectorMap:
         is_not_fringe = np.zeros(len(self.nearby_lane_markings), dtype=bool)
         for i, llm in enumerate(self.nearby_lane_markings):
             try:
-                interp_polyline = interp_arc(WPT_INFTY_NORM_INTERP_NUM, llm.polyline[:, 0], llm.polyline[:, 1])
+                interp_polyline = interp_utils.interp_arc(WPT_INFTY_NORM_INTERP_NUM, points=llm.polyline[:, :2])
             except Exception as e:
                 print("Interpolation failed")
                 logging.exception("Interpolation failed")
                 interp_polyline = llm.polyline
-            is_not_fringe[i] = infinity_norm_utils.has_pts_in_infty_norm_radius(
-                interp_polyline, self.ego_center, self.dilation - EGOVEHICLE_TO_FRINGE_DIST_M
+            is_not_fringe[i] = infinity_norm_utils.has_pts_in_infinity_norm_radius(
+                interp_polyline, self.ego_center, self.range_m - EGOVEHICLE_TO_FRINGE_DIST_M
             )
 
         return list(np.where(is_not_fringe)[0])

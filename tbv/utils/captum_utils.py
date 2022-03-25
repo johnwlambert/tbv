@@ -72,7 +72,7 @@ def get_gradcam_results(
     elif args.model_name in ["EarlyFusionCEResnet"] and set(args.fusion_modalities) == set(["semantics", "map"]):
         inputs = (semantic_img, map_img)
 
-    elif args.model_name in ["SingleModalityCEResnet"] and args.single_modality == "map":
+    elif args.model_name in ["SingleModalityCEResnet"] and args.fusion_modalities == ["map"]:
         inputs = map_img
 
     else:
@@ -99,7 +99,7 @@ def get_gradcam_results(
 
             sensor_heatmap = np.ones_like(labelmap_heatmap)  # (224, 224, 1)
 
-        elif args.model_name in ["SingleModalityCEResnet"] and args.single_modality == "map":
+        elif args.model_name in ["SingleModalityCEResnet"] and args.fusion_modalities == ["map"]:
             map_heatmap = gc_attr[0].permute(1, 2, 0).detach().cpu().numpy().sum(axis=2, keepdims=True)
 
             sensor_heatmap = np.ones_like(map_heatmap)

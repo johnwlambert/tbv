@@ -15,14 +15,14 @@ Originating Authors: John Lambert
 import logging
 from typing import List, NamedTuple, Optional, Tuple
 
+import av2.geometry.infinity_norm_utils as infinity_norm_utils
 import matplotlib.pyplot as plt
 import numpy as np
-from argoverse.utils.interpolate import compute_midpoint_line
+from av2.geometry.interpolate import compute_midpoint_line
 from scipy.spatial import ConvexHull
 from shapely.geometry import LineString, Point, Polygon
 
-import tbv.utils.infinity_norm_utils as infinity_norm_utils
-from tbv.rendering.map_rendering_classes import LocalVectorMap, LocalPedCrossing
+from tbv.common.local_vector_map import LocalPedCrossing, LocalVectorMap
 from tbv.utils.polygon_utils import polygon_pt_dist
 
 WPT_INFTY_NORM_INTERP_NUM = 50
@@ -352,18 +352,18 @@ def insert_synthetic_crosswalk(
 
         # we dont need to interpolate in 3d, since insertion reasoning is in 2d.
         centerline_pts, _ = compute_midpoint_line(
-            left_ln_bnds=rand_left_lane_boundary[:,:2],
-            right_ln_bnds=rand_right_lane_boundary[:,:2],
+            left_ln_boundary=rand_left_lane_boundary[:, :2],
+            right_ln_boundary=rand_right_lane_boundary[:, :2],
             num_interp_pts=WPT_INFTY_NORM_INTERP_NUM,
         )
 
-        if not infinity_norm_utils.has_pts_in_infty_norm_radius(
+        if not infinity_norm_utils.has_pts_in_infinity_norm_radius(
             centerline_pts[waypt_idx - 1 : waypt_idx + 2], ego_center, window_sz - 5
         ):
-            print("Sampled waypoint outside infinity norm radius, skipping")
+            print("[Crosswalk Generator] Sampled waypoint outside infinity norm radius, skipping")
             continue
 
-        assert infinity_norm_utils.has_pts_in_infty_norm_radius(
+        assert infinity_norm_utils.has_pts_in_infinity_norm_radius(
             centerline_pts[waypt_idx - 1 : waypt_idx + 2], ego_center, window_sz - 5
         )
         # get 2d line
@@ -420,7 +420,7 @@ def insert_synthetic_crosswalk(
 
         # extend it to the boundary of the drivable area, loop over true crosswalks
         ious = [find_xwalk_iou_2d(t_xwalk.get_edges(), proposed_xing_edges) for t_xwalk in lvm.ped_crossing_edges]
-        print("Crosswalk IoUs: ", np.round(ious,2))
+        print("Crosswalk IoUs: ", np.round(ious, 2))
         # break early if there were no other crosswalks present,
         # or if it overlaps with all other crosswalk polygon by less than 5%
         if len(ious) == 0 or np.array(ious).max() < MAX_INTER_XWALK_IOU:
@@ -428,7 +428,7 @@ def insert_synthetic_crosswalk(
             # lift the 2D crosswalk (two 2D line segments) to 3D using the map.
             proposed_xing_edges = list(proposed_xing_edges)
             for i, edge in enumerate(proposed_xing_edges):
-                proposed_xing_edges[i] = lvm.avm.append_height_to_2d_city_pt_cloud(pt_cloud_xy=edge)
+                proposed_xing_edges[i] = lvm.avm.append_height_to_2d_city_pt_cloud(points_xy=edge)
 
             lvm.ped_crossing_edges += [LocalPedCrossing(edge1=proposed_xing_edges[0], edge2=proposed_xing_edges[1])]
 

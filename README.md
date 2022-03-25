@@ -1,9 +1,9 @@
 ## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (NeurIPS '21, Official Repo)
 [John Lambert](https://johnwlambert.github.io/), [James Hays](https://www.cc.gatech.edu/~hays/)
 
-This repository contains the source code for training and evaluating models for the paper *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection* (NeurIPS, 2021).
+This repository contains the source code for training and evaluating models described in the NeurIPS '21 paper *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection*. [[Paper]](https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/6f4922f45568161a8cdf4ad2299f6d23-Paper-round2.pdf) [[Supplementary Material]](https://openreview.net/attachment?id=cXCZnLjDm4s&name=supplementary_material)
 
-The Trust but Verify (TbV) dataset will be made public shortly. You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
+The Trust but Verify (TbV) dataset is publicly available for download, as part of the [**Argoverse 2.0** family of datasets](https://www.argoverse.org/av2.html). Download instructions can be found [here](https://github.com/argoai/av2-api/blob/main/src/av2/datasets/tbv/README.md#downloading-tbv). You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
 
 ## Dataset Overview
 
@@ -73,26 +73,42 @@ Next, install `mseg-semantic` anywhere on your machine using:
 git clone https://github.com/mseg-dataset/mseg-semantic.git
 pip install -e .
 ```
-Next, install `argoverse-api` anywhere on your machine, and use the following branch of a fork until the changes are merged into master:
+Next, install `av2` ([`av2-api`](https://github.com/argoai/av2-api/blob/main/README.md) is the official repo for Argoverse 2.0):
 ```bash
-git clone https://github.com/johnwlambert/argoverse-api
-git checkout patch-6
+pip install av2==0.1.0
 ```
 
 Next, install Eigen. On Linux, `sudo apt install libeigen3-dev`. Next, `cd tbv-raytracing` and download `pybind11` via `git clone https://github.com/pybind/pybind11.git`, where it should be downloaded into the second-level `tbv-raytracing` dir.
 Compile the GPU library using `setup.py` as follows:
 ```bash
 python setup.py bdist_wheel
+pip install dist/tbv_raytracing-0.0.1-cp{PY_VERSION}-cp{PY_VERSION}-linux_x86_64.whl
+```
+e.g. this file could be named one of the following:
+```python
 pip install dist/tbv_raytracing-0.0.1-cp38-cp38-linux_x86_64.whl
+pip install dist/tbv_raytracing-0.0.1-cp310-cp310-linux_x86_64.whl
 ```
 
+## Downloading the dataset
+
+Download the dataset per the instructions found [here](https://github.com/argoai/av2-api/blob/main/src/av2/datasets/tbv/README.md#downloading-tbv).
+
+Create a folder, and then `logs/`
 
 ## Rendering Training Data
 
-To render data in a bird's eye view, run:
+To render data in a bird's eye view, run
 ```bash
-python scripts/run_dataset_rendering_job.py --config_name train_2021_09_04_bev_synthetic_config_t5820.yaml
+python scripts/run_dataset_rendering_job.py --config_name bev_config.yaml
 ```
+
+To render data in the ego-view, run
+```bash
+python scripts/run_dataset_rendering_job.py --config_name egoview_config.yaml
+```
+
+Program output will be saved in a `logging_output` directory.
 
 We use the following abbreviations for city names featured in TbV:
 | City Name | Abbreviation | 
@@ -121,7 +137,7 @@ python scripts/test.py --config_name {CONFIG_NAME}
 **Pretrained Models**: will be released shortly.
 
 ## Citing this work
-```
+```BibTeX
 @inproceedings{Lambert21neurips_TrustButVerifyHDMapChangeDetection,
  author = {Lambert, John W. and Hays, James},
  booktitle = {Advances in Neural Information Processing Systems Track on Datasets and Benchmarks},
@@ -142,3 +158,8 @@ Exclusive Remedy and Limitation of Liability: To the maximum extent permitted un
 Disclaimer of warranties: The software is provided "as-is" without warranty of any kind including any warranties of performance or merchantability or fitness for a particular use or purpose or of non-infringement. Licensee bears all risk relating to quality and performance of the software and related materials.
 
 Copyright: The Software is owned by Licensor and is protected by United States copyright laws and applicable international treaties and/or conventions.
+
+
+## FAQ:
+**Q**: How you make your decision on change: In your paper, you mention that each change task is given a buffer of sensor data from time 0 to t, but in your model architectures in figure 3, I can't figure out how you incorporate the buffer. Is it at each time stamp, a change decision is made, and then you average the decision from all of the time stamps?
+**A**: Using the buffer is not strictly necessary, but in some cases, it can be useful to have. Having a buffer of past info is also fairly realistic w.r.t. onboard settings. For the bird's eye view models we trained, we used a ring buffer to keep around the past 3d points w/ their RGB values, to make a richer input texture map (see code [here](https://github.com/johnwlambert/tbv/blob/main/tbv/rendering/make_bev_rgb_img.py#L118-L123). For the ego-view models, we didn't use a buffer of sensor data, but there would be ways to feed into a buffer of data as input. We discuss this a bit [Appendix F, page 5 of the supplement](https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/6f4922f45568161a8cdf4ad2299f6d23-Supplemental-round2.zip).

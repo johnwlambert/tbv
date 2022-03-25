@@ -14,23 +14,18 @@ Originating Authors: John Lambert
 
 """
 Unit tests on methods exposed in the LocalVectorMap.
+(Unit tests complete).
 """
 
 from typing import List, Optional
 
 import numpy as np
-from argoverse.map_representation.map_api_v2 import (
-    ArgoverseStaticMapV2,
-    LaneSegment,
-    LaneMarkType,
-    LaneType,
-    LocalLaneMarking,
-    Point,
-    Polyline,
-)
+from av2.map.lane_segment import LaneSegment, LaneMarkType, LaneType, LocalLaneMarking
+from av2.map.map_primitives import Point, Polyline
+from av2.map.map_api import ArgoverseStaticMap
 
-import tbv.rendering.map_rendering_classes as map_rendering_classes
-from tbv.rendering.map_rendering_classes import LocalVectorMap
+import tbv.common.local_vector_map as local_vector_map
+from tbv.common.local_vector_map import LocalVectorMap
 
 
 def test_LocalVectorMap() -> None:
@@ -41,7 +36,7 @@ def test_LocalVectorMap() -> None:
 
     20x20 scenario, i.e. we dilate 10 m in all directions (w/ infinity norm) from (2,2) which is AV location.
     """
-    lvm = LocalVectorMap(avm=None, ego_center=np.array([2.0, 2.0]), dilation=10.0)
+    lvm = LocalVectorMap(avm=None, ego_center=np.array([2.0, 2.0]), range_m=10.0)
 
     llm1 = LocalLaneMarking(
         mark_type="DASHED_WHITE",
@@ -94,10 +89,11 @@ def test_sample_lane_id_biased_to_intersections() -> None:
             left_lane_boundary=DUMMY_LEFT_LANE_BOUNDARY,
             right_mark_type=DUMMY_RIGHT_MARK_TYPE,
             left_mark_type=DUMMY_LEFT_MARK_TYPE,
+            predecessors=[], # dummy value
             successors=DUMMY_SUCCESSORS,
         )
 
-    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), dilation=20)
+    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), range_m=20)
     lvm.nearby_lane_segment_dict[0] = make_dummy_lane_segment(id=0, is_intersection=False)
     lvm.nearby_lane_segment_dict[1] = make_dummy_lane_segment(id=1, is_intersection=False)
     lvm.nearby_lane_segment_dict[2] = make_dummy_lane_segment(id=2, is_intersection=True)
@@ -137,10 +133,11 @@ def test_get_random_lane_id_sequence() -> None:
             left_lane_boundary=DUMMY_LEFT_LANE_BOUNDARY,
             right_mark_type=DUMMY_RIGHT_MARK_TYPE,
             left_mark_type=DUMMY_LEFT_MARK_TYPE,
+            predecessors=[], # dummy value
             successors=successors,
         )
 
-    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), dilation=20)
+    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), range_m=20)
     lvm.nearby_lane_segment_dict = {
         5: make_dummy_lane_segment(id=5, successors=[4]),
         6: make_dummy_lane_segment(id=6, successors=[4]),
@@ -191,10 +188,11 @@ def test_get_random_lane_id_sequence_out_of_map() -> None:
             left_lane_boundary=DUMMY_LEFT_LANE_BOUNDARY,
             right_mark_type=DUMMY_RIGHT_MARK_TYPE,
             left_mark_type=DUMMY_LEFT_MARK_TYPE,
+            predecessors = [], # dummy arg, `predecessors` are not used in TbV.
             successors=successors,
         )
 
-    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), dilation=20)
+    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), range_m=20)
     lvm.nearby_lane_segment_dict = {
         5: make_dummy_lane_segment(id=5, successors=[4]),
         4: make_dummy_lane_segment(id=4, successors=[999]),
@@ -238,12 +236,13 @@ def test_get_rightmost_neighbor() -> None:
             left_lane_boundary=DUMMY_LEFT_LANE_BOUNDARY,
             right_mark_type=DUMMY_RIGHT_MARK_TYPE,
             left_mark_type=DUMMY_LEFT_MARK_TYPE,
+            predecessors=[], # dummy value
             successors=successors,
             right_neighbor_id=right_neighbor_id,
             left_neighbor_id=left_neighbor_id,
         )
 
-    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), dilation=20)
+    lvm = LocalVectorMap(avm=None, ego_center=np.zeros(2), range_m=20)
     lvm.nearby_lane_segment_dict = {
         0: make_dummy_lane_segment(id=0, successors=[2], right_neighbor_id=1, left_neighbor_id=4),
         1: make_dummy_lane_segment(id=1, successors=[3], right_neighbor_id=None, left_neighbor_id=0),
@@ -293,10 +292,11 @@ def test_get_nonfringe_lane_ids() -> None:
             left_lane_boundary=left_lane_boundary,
             right_mark_type=DUMMY_RIGHT_MARK_TYPE,
             left_mark_type=DUMMY_LEFT_MARK_TYPE,
+            predecessors = [], # dummy value
             successors=DUMMY_SUCCESSORS,
         )
 
-    lvm = LocalVectorMap(avm=None, ego_center=np.array([1, 0.0]), dilation=7.0)
+    lvm = LocalVectorMap(avm=None, ego_center=np.array([1, 0.0]), range_m=7.0)
     vls0 = make_dummy_lane_segment(
         id=0,
         right_lane_boundary=Polyline(waypoints=[Point(-4, 7, 0), Point(-4, 4, 0)]),
@@ -325,6 +325,6 @@ def test_get_nonfringe_lane_ids() -> None:
 def test_normalize_prob_distribution() -> None:
     """Ensure a 1d vector of scores can be normalized to a valid probability distribution."""
     probs = np.array([2.0, 2.0, 1.0])
-    norm_probs = map_rendering_classes.normalize_prob_distribution(probs)
+    norm_probs = local_vector_map.normalize_prob_distribution(probs)
     gt_norm_probs = np.array([0.4, 0.4, 0.2])
     assert np.allclose(norm_probs, gt_norm_probs)

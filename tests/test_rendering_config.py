@@ -23,26 +23,26 @@ import tbv.rendering_config as rendering_config
 from tbv.rendering_config import EgoviewRenderingConfig, BevRenderingConfig
 
 
-def test_get_rendering_config_bev_file() -> None:
+def test_load_rendering_config_bev_file() -> None:
     """Config should be correctly loaded as BevRenderingConfig."""
-    config_name = "train_2021_09_04_bev_synthetic_config_t5820.yaml"
+    config_name = "render_2021_09_04_bev_synthetic_config_t5820.yaml"
 
-    config = rendering_config.get_rendering_config(config_name)
+    config = rendering_config.load_rendering_config(config_name)
     assert isinstance(config, BevRenderingConfig)
 
 
-def test_get_rendering_config_egoview() -> None:
+def test_load_rendering_config_egoview() -> None:
     """Config should be correctly loaded as EgoviewRenderingConfig."""
-    config_name = "train_2021_09_03_egoview_synthetic_config_v1.yaml"
+    config_name = "render_2021_09_03_egoview_synthetic_config_v1.yaml"
 
-    config = rendering_config.get_rendering_config(config_name)
+    config = rendering_config.load_rendering_config(config_name)
     assert isinstance(config, EgoviewRenderingConfig)
 
 
-def test_get_egoview_rendering_config_w_bev_file() -> None:
+def test_load_egoview_rendering_config_w_bev_file() -> None:
     """Config should NOT be correctly loaded (cannot load BEV config w/ egoview loader)."""
-    config_name = "train_2021_09_04_bev_synthetic_config_t5820.yaml"
+    config_name = "render_2021_09_04_bev_synthetic_config_t5820.yaml"
 
     with pytest.raises(omegaconf.errors.ConfigAttributeError):
-        config = rendering_config.get_egoview_rendering_config(config_name)
+        config = rendering_config.load_egoview_rendering_config(config_name)
     # assert isinstance(config, BevRenderingConfig)

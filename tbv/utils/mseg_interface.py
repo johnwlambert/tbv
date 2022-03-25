@@ -27,12 +27,16 @@ from pathlib import Path
 
 import mseg.utils.names_utils as names_utils
 import numpy as np
-from argoverse.utils.camera_stats import RING_CAMERA_LIST
-from mseg_semantic.tool.universal_demo import run_universal_demo
+from av2.datasets.sensor.constants import RingCameras
+
+try:
+    from mseg_semantic.tool.universal_demo import run_universal_demo
+except:
+    pass
 
 
 def get_mseg_label_map_fpath_from_image_info(
-    label_maps_dir: str, log_id: str, camera_name: str, img_fname_stem: str
+    label_maps_dir: Path, log_id: str, camera_name: str, img_fname_stem: str
 ) -> str:
     """
     Given canonical storage location for MSeg label maps, provide the path to the semantic segmentation label map
@@ -41,10 +45,10 @@ def get_mseg_label_map_fpath_from_image_info(
     Assumes MSeg-3M-480p model was used at single scale, with 358 px resolution input.
 
     Args:
-        label_maps_dir: string representing path to directory ...
+        label_maps_dir: path to local directory ...
         log_id: string representing unique ID for a TbV log/scenario.
         camera_name: string representing name of a ring camera.
-        img_fname_stem: 
+        img_fname_stem:
 
     Returns:
         label_map_path: file path to where label map should be stored on disk.
@@ -101,7 +105,7 @@ def run_semantic_segmentation(log_id: str, slice_extraction_dir: str, mseg_seman
     config_fpath = f"{mseg_semantic_repo_root}/mseg_semantic/config/test/default_config_360_ss_473x473.yaml"
 
     use_gpu = True
-    for camera_name in RING_CAMERA_LIST:
+    for camera_name in list(RingCameras):
 
         input_file = f"{slice_extraction_dir}/{camera_name}"
         # move the predicted label maps into the log's own directory

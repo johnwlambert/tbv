@@ -35,17 +35,18 @@ no guarantee the vertices are ordered CW or CCW (no consistent winding order).
 import math
 from typing import List, Tuple, Union
 
-import argoverse.utils.interpolate as interp_utils
 import matplotlib.pyplot as plt
 import numpy as np
 from argoverse.utils.cv2_plotting_utils import draw_polygon_cv2
-from argoverse.utils.polyline_density import get_polyline_length
+
 from descartes.patch import PolygonPatch
 from shapely.geometry import LineString, Polygon
 
+import av2.geometry.interpolate as interp_utils
+import av2.geometry.polyline_utils as polyline_utils
+from av2.rendering.map import EgoViewMapRenderer
+
 import tbv.rendering.polygon_rasterization as polygon_rasterization
-from tbv.rendering.map_rendering_classes import WPT_INFTY_NORM_INTERP_NUM
-from tbv.utils.proj_utils import LogEgoviewRenderingMetadata
 
 
 GRAY_BGR = [168, 168, 168]
@@ -74,13 +75,13 @@ def render_crosshatching_bev(
         mpl_vis: whether to visualize result in Matplotlib.
 
     Returns:
-        img: array of shape (H,W,3) representing RGB image (BEV map rendering) with crosswalk rendered
-           onto it.
+        img: array of shape (H,W,3) representing RGB or BGR image (BEV map rendering) with crosswalk rendered
+           onto it. (BGR or RGB because R,G,B intensities are identical for each rendered color -- grayscale.)
     """
     assert edge1.shape == (2, 2)
     assert edge2.shape == (2, 2)
-    len1 = get_polyline_length(edge1)
-    len2 = get_polyline_length(edge2)
+    len1 = polyline_utils.get_polyline_length(edge1)
+    len2 = polyline_utils.get_polyline_length(edge2)
 
     xwalk_len_px = min(len1, len2)
     if len1 > xwalk_len_px:
@@ -96,8 +97,8 @@ def render_crosshatching_bev(
     num_stripes = int(math.ceil(stripe_per_px * xwalk_len_px))
 
     # split polyline into dashes (stripes)
-    edge1_pts = interp_utils.interp_arc(num_stripes, edge1[:, 0], edge1[:, 1])
-    edge2_pts = interp_utils.interp_arc(num_stripes, edge2[:, 0], edge2[:, 1])
+    edge1_pts = interp_utils.interp_arc(num_stripes, points=edge1[:, :2])
+    edge2_pts = interp_utils.interp_arc(num_stripes, points=edge2[:, :2])
 
     if mpl_vis:
         fig = plt.figure(1, figsize=(10, 10), dpi=90)
@@ -136,7 +137,7 @@ def render_crosshatching_bev(
 
 
 def render_crosshatching_egoview(
-    ego_metadata: LogEgoviewRenderingMetadata, img_bgr: np.ndarray, edge1: np.ndarray, edge2: np.ndarray
+    ego_metadata: EgoViewMapRenderer, img_bgr: np.ndarray, edge1: np.ndarray, edge2: np.ndarray
 ) -> np.ndarray:
     """
 
@@ -151,8 +152,8 @@ def render_crosshatching_egoview(
     """
     assert edge1.shape == (2, 2)
     assert edge2.shape == (2, 2)
-    len1 = get_polyline_length(edge1)
-    len2 = get_polyline_length(edge2)
+    len1 = polyline_utils.get_polyline_length(edge1)
+    len2 = polyline_utils.get_polyline_length(edge2)
 
     xwalk_len_m = min(len1, len2)
     if len1 > xwalk_len_m:
@@ -164,17 +165,17 @@ def render_crosshatching_egoview(
 
     num_stripes = int(math.ceil(n_stripes_per_meter * xwalk_len_m))
 
-    edge1_pts = interp_utils.interp_arc(num_stripes, edge1[:, 0], edge1[:, 1])
-    edge2_pts = interp_utils.interp_arc(num_stripes, edge2[:, 0], edge2[:, 1])
+    edge1_pts = interp_utils.interp_arc(t=num_stripes, points=edge1[:, :2])
+    edge2_pts = interp_utils.interp_arc(t=num_stripes, points=edge2[:, :2])
 
     for i in range(num_stripes - 1):
 
         if i % 2 == 0:
             # GAP
-            color = GRAY_BGR
+            color_bgr = GRAY_BGR
         else:
             # CROSSWALK
-            color = WHITE_BGR
+            color_bgr = WHITE_BGR
 
         a1 = edge1_pts[i]
         a2 = edge1_pts[i + 1]
@@ -190,7 +191,7 @@ def render_crosshatching_egoview(
             downsample_factor=0.1,
             allow_interior_only=True,
             filter_to_driveable_area=False,
-            color_rgb=color,
+            color_bgr=color_bgr,
         )
 
     return img_bgr
@@ -276,8 +277,8 @@ def get_rectangular_region(
     """
     assert edge1.shape == (2, 2)
     assert edge2.shape == (2, 2)
-    len1 = get_polyline_length(edge1)
-    len2 = get_polyline_length(edge2)
+    len1 = polyline_utils.get_polyline_length(edge1)
+    len2 = polyline_utils.get_polyline_length(edge2)
 
     # choose the shortest length as our width
     if len1 > len2:
@@ -352,22 +353,22 @@ def clip_line_segment_to_center(line_segment: np.ndarray, clip_len: float):
         line_segment: array of shape (N,2), which may need to be clipped.
         clip_len: desired length of line segment, after clipping.
     """
-    original_len = get_polyline_length(line_segment)
+    original_len = polyline_utils.get_polyline_length(line_segment)
     N_PTS = 100
-    pts = interp_utils.interp_arc(t=N_PTS, px=line_segment[:, 0], py=line_segment[:, 1])
+    pts = interp_utils.interp_arc(t=N_PTS, points=line_segment[:, :2])
 
     for i in range(1, N_PTS // 2):
         # remove one more point at a time, from both sides
-        new_len = get_polyline_length(pts[i:-i])
+        new_len = polyline_utils.get_polyline_length(pts[i:-i])
         if new_len <= clip_len:
-            # print(f"Clipped from {original_len:.1f} m. to {new_len:.1f} m., to satisfy {clip_len:.1f} m.")
+            # print(f"Clipped from {original_len:.1f} m. to {new_len:.1f} m., to satisfy {clip_len:.1f} m.") # noqa
             return pts[i:-i]
 
     raise RuntimeError("Error in `clip_line_segment_to_center().`")
 
 
 def render_rectangular_crosswalk_egoview(
-    ego_metadata: LogEgoviewRenderingMetadata, img_bgr: np.ndarray, edge1: np.ndarray, edge2: np.ndarray
+    ego_metadata: EgoViewMapRenderer, img_bgr: np.ndarray, edge1: np.ndarray, edge2: np.ndarray
 ) -> np.ndarray:
     """
 

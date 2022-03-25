@@ -14,22 +14,28 @@ Originating Authors: John Lambert
 
 import logging
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-import argoverse.utils.interpolate as interp_utils
-from argoverse.map_representation.map_api_v2 import ArgoverseStaticMapV2, LaneSegment, Polyline
-from argoverse.utils.datetime_utils import generate_datetime_string
-from argoverse.utils.polyline_density import get_polyline_length
+import av2.geometry.infinity_norm_utils as infinity_norm_utils
+import av2.geometry.interpolate as interp_utils
+import av2.geometry.polyline_utils as polyline_utils
+from av2.map.map_api import ArgoverseStaticMap
+from av2.map.lane_segment import LaneSegment, LocalLaneMarking
+from av2.map.map_primitives import Polyline
 
+from argoverse.utils.datetime_utils import generate_datetime_string
+
+import tbv.rendering.bev_map_renderer as bev_map_renderer
 import tbv.synthetic_generation.synthetic_crosswalk_generator as synthetic_crosswalk_generator
-import tbv.utils.infinity_norm_utils as infinity_norm_utils
-from tbv.rendering.bev_vector_map_rendering_utils import bev_render_window
 from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig
-from tbv.rendering.map_rendering_classes import LocalLaneMarking, LocalVectorMap, LocalPedCrossing
+from tbv.common.local_vector_map import LocalVectorMap, LocalPedCrossing
 from tbv.utils.dir_utils import check_mkdir
+
+from tbv.common.tbv_lane_segment import TbvLaneSegment
 
 WPT_INFTY_NORM_INTERP_NUM = 50
 
@@ -64,7 +70,6 @@ for a new bike lane by iterating through the lane graph until there is no right 
 lane into half, we can create two half-width lanes in place of one. We use solid white lines to represent their
 boundaries.
 
-
 Many more possible map perturbations are possible, although we do not explore them, e.g.
 - insert trapezoid paint on the right side of the road
 - change number of lanes in road (change subdivision)
@@ -74,6 +79,7 @@ Many more possible map perturbations are possible, although we do not explore th
    e.g. jitter in the direction of its normal, by at least a large threshold.
 - add a turn lane
 """
+
 
 # Dictionary dictates allow changes for "CHANGE_LANE_MARKING_COLOR"
 ALT_LANE_MARK_COLOR_DICT = {
@@ -123,7 +129,7 @@ class SyntheticChangeType(str, Enum):
     """
     Types of changes:
     - switch solid line for dashed line, or vice versa
-    - switch white line to yellow line, or vice versa
+    - e.g. switch white line to yellow line, or vice versa
     -
     - insert crosswalk randomly across lane segment, or in front of stop line
     - delete drawn polyline for some lane (colored -> none)
@@ -139,7 +145,7 @@ class SyntheticChangeType(str, Enum):
 
 
 def render_perturbed_bev(
-    avm: ArgoverseStaticMapV2,
+    avm: ArgoverseStaticMap,
     timestamp: int,
     dirname: str,
     log_id: str,
@@ -147,21 +153,27 @@ def render_perturbed_bev(
     ego_center: np.ndarray,
     change_type: Union[str, SyntheticChangeType] = "no_change",
 ) -> None:
-    """
+    """Load the local map, perturb it, and then render it in the BEV.
 
     Args:
         avm: local map for TbV log/scenario.
         timestamp:
-        dirname:
+        dirname: name of directory, w/ experiment info encoded in name.
         log_id: string representing unique identifier for TbV log/scenario to render.
         config: specification of rendering parameters for BEV data.
         ego_center:
         change_type: type of synthetic change to apply to the local vector map.
     """
-    lvm, save_fpath = create_and_perturb_local_vector_map(
+    save_dir = Path(config.rendered_dataset_dir) / dirname / change_type.lower()
+    save_dir.mkdir(parents=True, exist_ok=True)
+    save_fpath = save_dir / f"{log_id}_{timestamp}_vectormap.jpg"
+    if save_fpath.exists():
+        logging.info("BEV map rendering already exists, so skipping rendering...")
+        return
+
+    lvm = create_and_perturb_local_vector_map(
         avm=avm,
         timestamp=timestamp,
-        dirname=dirname,
         log_id=log_id,
         config=config,
         ego_center=ego_center,
@@ -170,39 +182,38 @@ def render_perturbed_bev(
     if lvm is None:
         return
     # returns a copy of the BEV image, but it is already saved to disk, so we discard the return value.
-    _ = bev_render_window(lvm, save_fpath, log_id, ego_center, config.resolution, dilation=config.dilation)
+    _ = bev_map_renderer.bev_render_window(
+        lvm, save_fpath, log_id, ego_center, config.resolution_m_per_px, range_m=config.range_m
+    )
 
 
 def create_and_perturb_local_vector_map(
-    avm: ArgoverseStaticMapV2,
+    avm: ArgoverseStaticMap,
     timestamp: int,
-    dirname: str,
     log_id: str,
     config: Union[BevRenderingConfig, EgoviewRenderingConfig],
     ego_center: np.ndarray,
     change_type: Union[str, SyntheticChangeType] = "no_change",
-) -> Tuple[Optional[LocalVectorMap], Optional[str]]:
+) -> Optional[LocalVectorMap]:
     """Synthetically manipulate a local vector map, for either egoview or BEV rendering.
 
     Args:
         avm: local map for TbV log/scenario.
-        timestamp:
-        dirname
-        log_id: string representing unique identifier for TbV log/scenario to render.
+        timestamp: nanosecond timestamp to render the scene at.
+        log_id: unique identifier for TbV log/scenario to render.
         config: specification of rendering parameters for BEV or egoview data.
-        ego_center:
+        ego_center: coordinates of egovehicle within the city coordinate frame at the time of rendering.
         change_type: type of synthetic change to apply to the local vector map.
 
     Returns:
         lvm: (returns None upon failure)
-        save_fpath: (returns None upon failure)
     """
-    window_sz = config.dilation
+    window_sz = config.range_m
     ego_center = ego_center.reshape(1, 2)
 
     print(f"Generating (and optionally perturbing) local map for {change_type}")
 
-    lvm = LocalVectorMap(avm, ego_center, config.dilation)
+    lvm = LocalVectorMap(avm, ego_center, range_m=config.range_m)
     lpcs = avm.get_scenario_ped_crossings()  # ego_center) # or could put a distance-based search into the local map.
 
     # now, place flag for which local ped crossing are strictly nearby
@@ -211,12 +222,12 @@ def create_and_perturb_local_vector_map(
         edge1, edge2 = lpc.edge1.xyz, lpc.edge2.xyz
 
         # could have very long segment, with endpoints and all waypoints outside of radius
-        edge1_interp = interp_utils.interp_arc(t=WPT_INFTY_NORM_INTERP_NUM, px=edge1[:, 0], py=edge1[:, 1])
-        edge2_interp = interp_utils.interp_arc(t=WPT_INFTY_NORM_INTERP_NUM, px=edge2[:, 0], py=edge2[:, 1])
-        is_nearby = infinity_norm_utils.has_pts_in_infty_norm_radius(
-            edge1_interp, ego_center, config.max_dist_to_del_crosswalk
-        ) or infinity_norm_utils.has_pts_in_infty_norm_radius(
-            edge2_interp, ego_center, config.max_dist_to_del_crosswalk
+        edge1_interp = interp_utils.interp_arc(t=WPT_INFTY_NORM_INTERP_NUM, points=edge1[:, :2])
+        edge2_interp = interp_utils.interp_arc(t=WPT_INFTY_NORM_INTERP_NUM, points=edge2[:, :2])
+        is_nearby = infinity_norm_utils.has_pts_in_infinity_norm_radius(
+            edge1_interp, ego_center, window_sz=config.max_dist_to_del_crosswalk
+        ) or infinity_norm_utils.has_pts_in_infinity_norm_radius(
+            edge2_interp, ego_center, window_sz=config.max_dist_to_del_crosswalk
         )
         # now, is marked whether it is closeby
         mpc = LocalPedCrossing(edge1, edge2, is_nearby)
@@ -224,18 +235,22 @@ def create_and_perturb_local_vector_map(
 
     lvm.ped_crossing_edges = marked_ped_crossings
 
-    vector_lane_segments = avm.get_nearby_lane_segments(ego_center, window_sz)
+    vector_lane_segments = avm.get_nearby_lane_segments(query_center=ego_center, search_radius_m=window_sz)
 
     for vls in vector_lane_segments:
-        lvm.nearby_lane_segment_dict[vls.id] = vls
-        lvm.nearby_lane_markings += [vls.get_left_lane_marking()]
-        lvm.nearby_lane_markings += [vls.get_right_lane_marking()]
+        lvm.nearby_lane_segment_dict[vls.id] = TbvLaneSegment.from_lane_segment(vls)
+        lvm.nearby_lane_markings += [vls.left_lane_marking]
+        lvm.nearby_lane_markings += [vls.right_lane_marking]
 
         # lane_segment['has_traffic_control']
         # stopline occurs at start of an intersection lane segment
         if vls.is_intersection:
             stopline = np.vstack([vls.right_lane_boundary.xyz[0, :2], vls.left_lane_boundary.xyz[0, :2]])
             lvm.stoplines += [stopline]
+
+    if change_type == "no_change":
+        # return immediately, no perturbation required.
+        return lvm
 
     # currently, only one change at a time
     if change_type == SyntheticChangeType.DELETE_CROSSWALK:
@@ -244,7 +259,7 @@ def create_and_perturb_local_vector_map(
         num_crosswalks_nearby = ped_crossings_are_nearby.sum()
         if num_crosswalks_nearby < 1:
             # cannot perform the desired augmentation, abort
-            return None, None
+            return None
 
         idx_choices = np.where(ped_crossings_are_nearby)[0]
         crosswalk_idx = np.random.choice(a=idx_choices)
@@ -266,7 +281,7 @@ def create_and_perturb_local_vector_map(
             lvm = synthetic_crosswalk_generator.insert_synthetic_crosswalk(lvm, ego_center, window_sz)
         except Exception as e:
             logging.exception(f"Synthetic crosswalk generation failed for {log_id}")
-            return None, None  # likely some lane segment was not interpolate-able
+            return None  # likely some lane segment was not interpolate-able
 
     elif change_type == SyntheticChangeType.CHANGE_LANE_BOUNDARY_DASH_SOLID:
         # switch solid line for dashed line, or vice versa
@@ -277,7 +292,7 @@ def create_and_perturb_local_vector_map(
             # abort, no real markings to delete
             logging.info("Skipping CHANGE_LANE_BOUNDARY_DASH_SOLID: There were no yellow or white markings to change")
             print("Skipping CHANGE_LANE_BOUNDARY_DASH_SOLID: There were no yellow or white markings to change")
-            return None, None
+            return None
 
         lvm = change_lane_marking(lvm, "structure")
 
@@ -300,7 +315,7 @@ def create_and_perturb_local_vector_map(
             # abort, no real markings to delete
             logging.info("There were no yellow or white markings to delete")
             # print("There were no yellow or white markings to delete")
-            return None, None
+            return None
 
         # date_str = generate_datetime_string()
         # fig_save_fpath = f'delete_changes/{date_str}_A.jpg'
@@ -317,20 +332,13 @@ def create_and_perturb_local_vector_map(
         if any([vls.lane_type == "BIKE" for vls in lvm.nearby_lane_segment_dict.values()]):
             # Don't synthetically generate if there is already one here...
             # TODO: check to see if heuristic finds the same one, only then quit
-            return None, None
+            return None
 
         lvm = add_bike_lane(lvm)
 
-    # if 'no_change', just pass through cases above
-    dirname += f"/{change_type.lower()}"
-
-    im_fname = f"{log_id}_{timestamp}_vectormap.jpg"
-    check_mkdir(f"{config.rendered_dataset_dir}/{dirname}")
-    save_fpath = f"{config.rendered_dataset_dir}/{dirname}/{im_fname}"
-
     # plt.axis('equal')
     # plt.show()
-    return lvm, save_fpath
+    return lvm
 
 
 def delete_lane_marking(lvm: LocalVectorMap) -> LocalVectorMap:
@@ -402,11 +410,10 @@ def get_changed_polyline(lvm: LocalVectorMap, traj_lane_ids: List[int], bnd_side
 
     # mark lane IDs as not to be rendered
     for traj_lane_id in traj_lane_ids:
-
         if bnd_side_to_change == "left":
-            lvm.changed_points += [lvm.nearby_lane_segment_dict[traj_lane_id].left_lane_boundary]
+            lvm.changed_points += [lvm.nearby_lane_segment_dict[traj_lane_id].left_lane_boundary.xyz]
         else:
-            lvm.changed_points += [lvm.nearby_lane_segment_dict[traj_lane_id].right_lane_boundary]
+            lvm.changed_points += [lvm.nearby_lane_segment_dict[traj_lane_id].right_lane_boundary.xyz]
 
     lvm.changed_points = np.vstack(lvm.changed_points)
     return lvm
@@ -431,7 +438,7 @@ def change_lane_marking(lvm: LocalVectorMap, change_type: str) -> LocalVectorMap
     # must also change its corresponding left/right neighbor (if exists)
     # to prevent just blending the two colors together
 
-    # polyline_len = get_polyline_length(boundary_polyline)
+    # polyline_len = polyline_utils.get_polyline_length(boundary_polyline)
     # print(f'Will modify {polyline_len} meters of lane boundary.')
 
     # choose a random lane segment
@@ -511,15 +518,15 @@ def add_bike_lane(lvm: LocalVectorMap) -> LocalVectorMap:
 
         # do the linear interpolation directly in 3d
         lane_centerline, _ = interp_utils.compute_midpoint_line(
-            left_ln_bnds=traj_lane.left_lane_boundary.xyz,
-            right_ln_bnds=traj_lane.right_lane_boundary.xyz,
+            left_ln_boundary=traj_lane.left_lane_boundary.xyz,
+            right_ln_boundary=traj_lane.right_lane_boundary.xyz,
             num_interp_pts=interp_utils.NUM_CENTERLINE_INTERP_PTS,
         )
         lvm.changed_points += [lane_centerline]
 
         # add a new bike lane
         new_lane_id = DUMMY_LANE_ID + i
-        lvm.nearby_lane_segment_dict[new_lane_id] = LaneSegment(
+        lvm.nearby_lane_segment_dict[new_lane_id] = TbvLaneSegment(
             id=new_lane_id,
             is_intersection=traj_lane.is_intersection,
             lane_type="BIKE",
@@ -529,6 +536,7 @@ def add_bike_lane(lvm: LocalVectorMap) -> LocalVectorMap:
             left_mark_type="SOLID_WHITE",  # could use multiple colors later
             right_neighbor_id=traj_lane.right_neighbor_id,
             left_neighbor_id=traj_lane.left_neighbor_id,
+            predecessors=[],  # irrelevant
             successors=[],  # irrelevant, no more graph operations will be performed
         )
 

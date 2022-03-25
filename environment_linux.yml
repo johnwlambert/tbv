@@ -33,8 +33,11 @@ dependencies:
   - cudatoolkit=10.2
   - opencv # preferring conda-forge's distribution as it provides the latest distribution
   - pytorch
+  - torchvision
   - hydra-core
   - captum
+  - mapbox_earcut
+  - trimesh
   # io
   - h5py
   - plotly=4.14.3
