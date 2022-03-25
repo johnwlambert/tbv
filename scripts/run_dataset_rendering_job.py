@@ -50,48 +50,8 @@ from argoverse.utils.json_utils import read_json_file
 
 from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
 
-
 from tbv.rendering.egoview_vector_map_rendering_utils import execute_egoview_job
 from tbv.utils.multiprocessing_utils import send_list_to_workers_with_worker_id
-
-
-def subsampled_label_maps_exist(
-    label_map_parent_dir: Path, log_id: str, subsampled_dir: Path, camera_name: str
-) -> bool:
-    """ """
-    # Bail out early if necessary label maps already present
-    subsampled_fnames = [Path(f).stem for f in glob.glob(f"{subsampled_dir}/*.jpg")]
-    label_map_dirname = f"mseg-3m_{log_id}_subsampled_{camera_name}_universal_ss/360/gray"
-    label_map_dirpath = f"{label_map_parent_dir}/{label_map_dirname}"
-
-    label_map_fnames = [Path(f).stem for f in glob.glob(f"{label_map_dirpath}/*.png")]
-    logging.info(f"Found {len(label_map_fnames)} / {len(subsampled_fnames)} for {camera_name} {log_id}")
-
-    all_found = all([Path(f"{label_map_dirpath}/{f}.png").exists() for f in subsampled_fnames])
-    # should make sure images actually exist in the subsampled dir
-    # (i.e. ensure that not checking against empty list)
-    return all_found and len(subsampled_fnames) >= 0
-
-
-def test_subsampled_label_maps_exist() -> None:
-    """
-    Could make a simple unit test for this later
-    """
-    mseg_semantic_repo_root = "/home/ubuntu/mseg-semantic"
-    local_dataset_dir = "/home/ubuntu/mcd_extraction_output_dir_q85_v12_2020_08_15_02_02_50"
-    log_ids = []
-    for log_id in log_ids:
-
-        label_map_parent_dir = Path(mseg_semantic_repo_root) / "temp_files"
-        camera_name = "ring_front_center"
-        slice_extraction_dir = Path(local_dataset_dir) / "logs" / log_id
-        subsampled_dir = Path(slice_extraction_dir) / f"subsampled_{camera_name}"
-        all_found = subsampled_label_maps_exist(label_map_parent_dir, log_id, subsampled_dir, camera_name)
-        print(f"All found: {all_found} for {log_id}")
-
-        label_map_parent_dir = slice_extraction_dir
-        all_found = subsampled_label_maps_exist(label_map_parent_dir, log_id, subsampled_dir, camera_name)
-        print(f"\tAll found: {all_found} for {log_id}")
 
 
 def render_log_imagery(
