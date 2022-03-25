@@ -14,25 +14,25 @@ Originating Authors: John Lambert
 
 from typing import List, Tuple
 
+import argoverse.utils.calibration as calib_utils
 import matplotlib.pyplot as plt
 import numpy as np
-import argoverse.utils.calibration as calib_utils
-from argoverse.map_representation.map_api_v2 import ArgoverseStaticMapV2
-from argoverse.utils.se3 import SE3
+from av2.map.map_api import ArgoverseStaticMap
+from av2.geometry.se3 import SE3
 from argoverse.utils.cv2_plotting_utils import draw_polygon_cv2
 
-from tbv.utils.depth_map_utils import compute_allowed_noise_per_point
 import tbv.utils.frustum_utils as frustum_utils
+
 
 TRIANGLES_TYPE = List[Tuple[np.ndarray, np.ndarray, np.ndarray]]
 
 
 def get_ground_surface_grid_triangles(
-    avm: ArgoverseStaticMapV2, city_SE3_egovehicle: SE3, range_m: float = 30
+    avm: ArgoverseStaticMap, city_SE3_egovehicle: SE3, range_m: float = 30
 ) -> TRIANGLES_TYPE:
     """Subdivide a large flat, square area (with zero height) into triangles.
 
-    Square area has exact area (2*range_m * 2*range_m).
+    Square area has exact area (2*range_m * 2*range_m). 1 meter resolution is used.
 
     v2 - v3
     |  \\ |
@@ -140,11 +140,11 @@ def plane_point_side_v3(p, v):
     This function does not compute the actual distance.
     Positive denotes that point v is on the same side of the plane as the plane's normal vector.
     Negative if it is on the opposite side.
-    
+
     Args:
         p: Array of shape (3,) representing a plane in Hessian Normal Form, ax + by + c = 0
         v: A vector/2D point
-    
+
     Returns:
         sign: A float-like value representing sign of signed distance
     """
@@ -220,62 +220,6 @@ def prune_triangles_to_2d_frustum(
 
     frustum_triangles = [triangles[i] for i in range(num_triangles) if inside_frustum[i]]
     return frustum_triangles, inside_frustum
-
-
-def render_triangles_in_egoview(
-    depth_map: np.ndarray,
-    img_bgr: np.ndarray,
-    tri_verts_egofr: np.ndarray,
-    log_calib_data,
-    camera_name: str,
-    color: Tuple[int, int, int],
-) -> np.ndarray:
-    """Uses occlusion reasoning to reason about the triangles visible.
-
-    Args:
-        depth_map
-        img_bgr: BGR image
-        tri_verts_egofr: array of shape (N,3), arranged with triplets adjacent to one another,
-            i.e. indices [0,1,2] represent one triangle, [3,4,5] also etc
-        log_calib_data:
-        camera_name: 
-        color: 
-
-    Returns:
-        img_bgr: array of shape () representing a BGR image
-    """
-    # triangles = tri_verts_egofr.copy().reshape(-1,9)
-
-    initial_num_triangles = tri_verts_egofr.shape[0] // 3
-    points_h = calib_utils.point_cloud_to_homogeneous(tri_verts_egofr).T
-    uv, uv_cam, valid_pts_bool = calib_utils.project_lidar_to_img(
-        points_h, log_calib_data, camera_name, return_camera_config=False, remove_nan=False
-    )
-    uv_cam = uv_cam.T
-    tri_triplet_valid = valid_pts_bool.reshape(-1, 3).sum(axis=1) == 3
-    valid_tri_idxs = np.arange(initial_num_triangles)[tri_triplet_valid]
-    # valid_triangles = triangles[tri_triplet_valid]
-    # print('Pruned from ', initial_num_triangles, ' to ', valid_triangles.shape[0])
-
-    for orig_tri_idx in valid_tri_idxs:
-
-        vert_start_idx = orig_tri_idx * 3
-        vert_end_idx = vert_start_idx + 3
-        tri_uv = uv[vert_start_idx:vert_end_idx].astype(np.int32)
-        # semantic entity triangle z coord
-
-        tri_uv_cam = uv_cam[vert_start_idx:vert_end_idx]
-        sem_entity_cam_z = tri_uv_cam[:, 2]
-        depth_map_z = depth_map[tri_uv[:, 1], tri_uv[:, 0]]
-
-        allowed_noise = compute_allowed_noise_per_point(tri_uv_cam)
-        not_occluded = sem_entity_cam_z <= depth_map_z + allowed_noise
-        if not all(not_occluded):
-            continue
-
-        img_bgr = draw_polygon_cv2(tri_uv, img_bgr, color)
-
-    return img_bgr
 
 
 if __name__ == "__main__":
