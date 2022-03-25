@@ -291,41 +291,5 @@ if __name__ == "__main__":
     logging.info(args)
     print(args)
 
-    # load config for experiment
-    # test_subsampled_label_maps_exist()
-
-    # exp_cfg_path = 'configs/train_2020_09_12_lidar_rgb_corr_config.yaml'
-    # exp_cfg_path = 'configs/train_2020_09_16_lidar_rgb_corr_synthetic_config.yaml'
-    # exp_cfg_path = 'configs/train_2020_10_24_lidar_rgb_corr_synthetic_config.yaml'
-    # exp_cfg_path = 'configs/train_2020_10_26_lidar_rgb_corr_synthetic_config.yaml'
-
-    # exp_cfg_path = 'configs/train_2020_10_29_lidar_rgb_corr_synthetic_config_v2.yaml'
-    # exp_cfg_path = 'configs/train_2020_11_03_lidar_rgb_corr_synthetic_config_v2.yaml' # big ray-traced
-    # exp_cfg_path = 'configs/train_2020_11_04_lidar_rgb_corr_synthetic_config_v2.yaml' # experimental luminance
-
-    # exp_cfg_path = "configs/train_2020_11_04_lidar_rgb_corr_config_v1.yaml"
-
-    # exp_cfg_path = 'configs/train_2020_11_10_lidar_rgb_corr_synthetic_config_v1.yaml' # experimental luminance
-    # exp_cfg_path = 'configs/train_2020_11_14_lidar_rgb_corr_synthetic_config_paperfighistmatchsem.yaml'
-
-    # exp_cfg_path = 'configs/train_2020_12_14_egoview_synthetic_config_v1.yaml'
-    # exp_cfg_path = 'configs/train_2021_01_04_egoview_synthetic_config_v1.yaml'
-
-    # exp_cfg_path = 'configs/train_2021_02_05_seamseg_bev_config_v1.yaml'
-    # exp_cfg_path = 'configs/train_2021_02_09_seamseg_bev_debug_config_v1.yaml'
-
-    # exp_cfg_path = 'configs/train_2021_03_13_lidar_reflectance_bev_gen_config_v1.yaml'
-
-    # exp_cfg_path = 'configs/train_2021_04_17_egoview_synthetic_config_v1.yaml'
-    # exp_cfg_path = "configs/train_2021_04_23_lidar_rgb_corr_config_v1.yaml"
-
-    # exp_config_name = "train_2021_09_03_egoview_synthetic_config_v1.yaml"
-    # exp_config_name = "render_2021_09_03_egoview_synthetic_config_t5820.yaml"
-    # exp_config_name = "render_2021_09_04_bev_synthetic_config_t5820.yaml"
-    # exp_config_name = "render_2021_09_03_egoview_synthetic_config_v1.yaml"
-    exp_config_name = "render_2021_09_04_bev_synthetic_config_t5820.yaml"
-
-    args.config_name = exp_config_name
-
     exp_config = rendering_config.load_rendering_config(args.config_name)
     render_dataset_all_logs(exp_cfg=exp_config, mseg_semantic_repo_root=Path(args.mseg_semantic_repo_root))
