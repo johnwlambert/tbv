@@ -1,9 +1,9 @@
-## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (Official Repo)
+## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (NeurIPS '21, Official Repo)
 [John Lambert](https://johnwlambert.github.io/), [James Hays](https://www.cc.gatech.edu/~hays/)
 
 This repository contains the source code for training and evaluating models described in the NeurIPS '21 paper *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection*. [[Paper]](https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/6f4922f45568161a8cdf4ad2299f6d23-Paper-round2.pdf) [[Supplementary Material]](https://openreview.net/attachment?id=cXCZnLjDm4s&name=supplementary_material)
 
-The Trust but Verify (TbV) dataset will be made public shortly. You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
+The Trust but Verify (TbV) dataset is publicly available for download, as part of the [**Argoverse 2.0** family of datasets](https://www.argoverse.org/av2.html). Download instructions can be found [here](https://github.com/argoai/av2-api/blob/main/src/av2/datasets/tbv/README.md#downloading-tbv). You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
 
 ## Dataset Overview
 
@@ -93,7 +93,7 @@ pip install dist/tbv_raytracing-0.0.1-cp310-cp310-linux_x86_64.whl
 
 ## Downloading the dataset
 
-- 7.8 million images (7,840,041 images)
+Download the dataset per the instructions found [here](https://github.com/argoai/av2-api/blob/main/src/av2/datasets/tbv/README.md#downloading-tbv).
 
 Create a folder, and then `logs/`
 
@@ -138,12 +138,13 @@ python scripts/test.py --config_name {CONFIG_NAME}
 **Pretrained Models**: will be released shortly.
 
 ## Citing this work
-```
-@article{Lambert21_TbV,
-  title={{Trust, but Verify}: Cross-Modality Fusion for HD Map Change Detection},
-  author={John Lambert and James Hays},
-  month={August},
-  year={2021}
+```BibTeX
+@inproceedings{Lambert21neurips_TrustButVerifyHDMapChangeDetection,
+ author = {Lambert, John W. and Hays, James},
+ booktitle = {Advances in Neural Information Processing Systems Track on Datasets and Benchmarks},
+ title = {{Trust, but Verify}: Cross-Modality Fusion for HD Map Change Detection},
+ url = {https://openreview.net/pdf?id=cXCZnLjDm4s},
+ year = {2021}
 }
 ```
 
