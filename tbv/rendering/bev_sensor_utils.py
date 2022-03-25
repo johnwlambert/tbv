@@ -13,16 +13,15 @@ Originating Authors: John Lambert
 """
 
 import time
+from pathlib import Path
 
+import av2.utils.dense_grid_interpolation as dense_grid_interpolation
 import imageio
 import numpy as np
-import scipy.interpolate
-from argoverse.utils.mesh_grid import get_mesh_grid_as_point_cloud
 from argoverse.utils.se2 import SE2
 
 import tbv.utils.logger_utils as logger_utils
 from tbv.rendering_config import BevRenderingConfig
-from tbv.utils.dir_utils import check_mkdir
 from tbv.utils.median_filter import form_aggregate_rgb_img
 
 
@@ -51,15 +50,19 @@ def make_bev_img_from_sensor_data(
     dirname: str,
     config: BevRenderingConfig,
     log_id: str,
-    city_pts: np.ndarray,
+    pts_city: np.ndarray,
     rgb_vals: np.ndarray,
     ego_center: np.ndarray,
-    method: str = "linear",  # 'nearest'
-    use_interp: bool = False,  # True
+    method: str = "linear",
+    use_interp: bool = False,
     modality: str = "rgb",
-) -> bool:
-    """
-    Obtain BEV ground height imagery 20 meters in all directions around
+) -> None:
+    """Generate an orthographic texture map in a bird's eye view from panoramic perspective cameras.
+
+    Note: The size of the bird's eye view image is a function of the resolution and range of 3d points
+    to consider away from the egovehicle.
+
+    For example, we could generate BEV ground height imagery for 20 meters in all directions around
     egovehicle. `Linear` interp shows fewer speckle artifacts than `nearest`.
 
     Since the positive y axes are mirrored in North-South city frame
@@ -80,28 +83,52 @@ def make_bev_img_from_sensor_data(
         dirname:
         config:
         log_id:
-        city_pts: array of shape ()
-        rgb_vals: array of shape ()
+        pts_city: float array of shape (N,3)
+        rgb_vals: uint8 array of shape (N,3)
         ego_center: Numpy array of shape (2,) with (x,y) coordinates of egovehicle's center
-        method:
-        use_interp:
+        method: either "linear" or "nearest".
+        use_interp: whether to densely interpolate the texture map from sparse pixel values.
         modality:
     """
+    if config.make_bev_semantic_img:
+        img_suffix = ".png"
+    else:
+        # for sensor image
+        img_suffix = ".jpg"
+
+    im_fname = f"{log_id}_{timestamp}"
+    im_fname += f"_{modality}"
+    im_fname += f"_interp{use_interp}{method}"
+    im_fname += f"_projmethod{config.projection_method}"
+    im_fname += img_suffix
+
+    save_dir = Path(config.rendered_dataset_dir) / dirname
+    if config.make_bev_semantic_img:
+        save_dir = save_dir / "semantics"
+
+    save_dir.mkdir(exist_ok=True, parents=True)
+    save_fpath = save_dir / im_fname
+    if save_fpath.exists():
+        # no need to regenerate this image.
+        logger.info("BEV sensor image already exists, so skipping rendering...")
+        return
+
     logger.info(
-        f"Generating BEV image using {method} interpolation from" + f"{config.projection_method} correspondence..."
+        f"Generating BEV image using {method} interpolation from " + f"{config.projection_method} correspondence..."
     )
-    # Prune after we rescale. resolution is given in cm/px
-    city_pts /= config.resolution
-    ego_center /= config.resolution
 
-    city_pts = np.round(city_pts)
-    xcenter, ycenter = np.round(ego_center).astype(np.int32)
-
-    # dilation describes X meters in each direction around median
-    n_px = int(config.dilation * (1 / config.resolution))
+    # range_m describes X meters in each direction around median
+    n_px = int(config.range_m * (1 / config.resolution_m_per_px))
     grid_h = n_px * 2
     grid_w = n_px * 2
     bev_img = np.zeros((grid_h + 1, grid_w + 1, 3), dtype=np.uint8)
+
+    # Prune after we rescale. resolution is given in m/px
+    pts_city /= config.resolution_m_per_px
+    ego_center /= config.resolution_m_per_px
+
+    pts_city = np.round(pts_city)
+    xcenter, ycenter = np.round(ego_center).astype(np.int32)
 
     ymin = ycenter - n_px
     ymax = ycenter + n_px
@@ -109,15 +136,15 @@ def make_bev_img_from_sensor_data(
     xmax = xcenter + n_px
 
     # --- prune to relevant region --------------
-    logicals = prune_to_2d_bbox(city_pts, xmin, ymin, xmax, ymax)
+    logicals = prune_to_2d_bbox(pts_city, xmin, ymin, xmax, ymax)
     rgb_vals = rgb_vals[logicals]
-    city_pts = city_pts[logicals]
+    pts_city = pts_city[logicals]
     # -------------------------------------------
 
-    bev_img_SE2_city = SE2(rotation=np.eye(2), translation=np.array([-xmin, -ymin]))
+    bevimg_SE2_city = SE2(rotation=np.eye(2), translation=np.array([-xmin, -ymin]))
 
-    bev_img_pts = bev_img_SE2_city.transform_point_cloud(city_pts[:, :2])
-    bev_img_pts = (bev_img_pts).astype(np.int32)
+    pts_bevimg = bevimg_SE2_city.transform_point_cloud(pts_city[:, :2])
+    pts_bevimg = (pts_bevimg).astype(np.int32)
 
     # if use_interp:
     # 	# fill in sparse grid with pixel values, dense interp
@@ -134,9 +161,9 @@ def make_bev_img_from_sensor_data(
     # 		bev_img = form_aggregate_rgb_img(bev_img, bev_img_pts, rgb_vals, method='naive')
 
     if use_interp:
-        bev_img = interp_dense_grid_at_unique_locations(bev_img, bev_img_pts, rgb_vals, grid_h, grid_w, method)
+        bev_img = interp_dense_grid_at_unique_locations(bev_img, pts_bevimg, rgb_vals, grid_h, grid_w, method)
     else:
-        bev_img = form_aggregate_rgb_img(bev_img, bev_img_pts, rgb_vals, method="naive")
+        bev_img = form_aggregate_rgb_img(bev_img, pts_bevimg, rgb_vals, method="naive")
 
     bev_img = np.flipud(bev_img)
 
@@ -151,24 +178,6 @@ def make_bev_img_from_sensor_data(
     # else:
     # 	is_too_sparse = False
 
-    if config.make_bev_semantic_img:
-        img_suffix = ".png"
-    else:
-        # for sensor image
-        img_suffix = ".jpg"
-
-    im_fname = f"{log_id}_{timestamp}"
-    im_fname += f"_{modality}"
-    im_fname += f"_interp{use_interp}{method}"
-    im_fname += f"_projmethod{config.projection_method}"
-    im_fname += img_suffix
-
-    save_dir = f"{config.rendered_dataset_dir}/{dirname}"
-    if config.make_bev_semantic_img:
-        save_dir += "/semantics"
-
-    check_mkdir(save_dir)
-    save_fpath = f"{save_dir}/{im_fname}"
     imageio.imwrite(save_fpath, bev_img)
 
     # return is_too_sparse
@@ -188,7 +197,7 @@ def interp_dense_grid_at_unique_locations(
         bev_img: array of shape (H,W) representing
         bev_img_pts: array of shape () representing
         rgb_vals: array of shape () representing
-        grid_h: 
+        grid_h:
         grid_w:
         method: interpolation method, either "linear" or "nearest"
 
@@ -205,39 +214,16 @@ def interp_dense_grid_at_unique_locations(
     unique_bev_img_pts = np.hstack([x.reshape(-1, 1), y.reshape(-1, 1)])
     last_rgb_vals = bev_img[y, x]
 
-    bev_img = interp_dense_grid_from_sparse(bev_img, unique_bev_img_pts, last_rgb_vals, grid_h, grid_w, method)
+    bev_img = dense_grid_interpolation.interp_dense_grid_from_sparse(
+        grid_img=bev_img,
+        points=unique_bev_img_pts,
+        values=last_rgb_vals,
+        grid_h=grid_h,
+        grid_w=grid_w,
+        interp_method=method,
+    )
 
     end = time.time()
     duration = end - start
     print(f"Interpolation took {duration:.2f} sec")
-    return bev_img
-
-
-def interp_dense_grid_from_sparse(
-    bev_img: np.ndarray, points: np.ndarray, rgb_values: np.ndarray, grid_h: int, grid_w: int, interp_method: str
-) -> np.ndarray:
-    """
-    We interpolate (y,x) points instead of (x,y). Then we get
-    not quite the same as `matplotlib.mlab.griddata
-
-    Args:
-        bev_img: array of shape () representing empty image to populate
-        points: array of shape ()
-        rgb_values: array of shape ()
-        grid_h: 
-        grid_w: 
-        method: interpolation method, either "linear" or "nearest"
-
-    Returns:
-        bev_img: array of shape () representing densely interpolated image
-    """
-    # get (x,y) tuples back
-    grid_coords = get_mesh_grid_as_point_cloud(min_x=0, max_x=grid_w - 1, min_y=0, max_y=grid_h - 1)
-    # make RGB a function of (dim0=x,dim1=y)
-    interp_rgb_vals = scipy.interpolate.griddata(points, rgb_values, grid_coords, method=interp_method)
-
-    u = grid_coords[:, 0].astype(np.int32)
-    v = grid_coords[:, 1].astype(np.int32)
-    # Now index in at (y,x) locations
-    bev_img[v, u] = interp_rgb_vals
     return bev_img

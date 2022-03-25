@@ -24,20 +24,21 @@ import time
 from pathlib import Path
 from typing import Any, Tuple
 
-import argoverse.utils.calibration as calib_utils
 import imageio
 import numpy as np
-from argoverse.data_loading.simple_track_dataloader import SimpleArgoverseTrackingDataLoader
-from argoverse.map_representation.map_api_v2 import ArgoverseStaticMapV2
+
 from argoverse.utils.camera_stats import RING_CAMERA_LIST
-from argoverse.utils.mesh_grid import get_mesh_grid_as_point_cloud
-from argoverse.utils.se3 import SE3
+
+from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
+import av2.geometry.mesh_grid as mesh_grid_utils
+from av2.geometry.se3 import SE3
+from av2.map.map_api import ArgoverseStaticMap
+from av2.geometry.camera.pinhole_camera import PinholeCamera
 
 import tbv.utils.logger_utils as logger_utils
-import tbv.utils.frustum_ray_generation_utils as ray_gen_utils
 import tbv.utils.mseg_interface as mseg_interface
 import tbv.utils.z1_egovehicle_mask_utils as z1_mask_utils
-from tbv.utils.proj_utils import within_img_bnds
+from tbv.rendering_config import BevRenderingConfig
 
 try:
     import tbv_raytracing
@@ -54,10 +55,9 @@ def get_point_rgb_correspondences_raytracing(
     nearby_triangles: np.ndarray,
     label_map: np.ndarray,
     cam_timestamp: int,
-    camera_name: str,
     rgb_img: np.ndarray,
     city_SE3_egovehicle: SE3,
-    camera_config,
+    pinhole_camera: PinholeCamera,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Cast a ray from the camera optical center through every image pixel, until it hits the ground surface mesh.
     Record the coordinates for each intersection point, and associate an RGB value with it.
@@ -70,31 +70,27 @@ def get_point_rgb_correspondences_raytracing(
             as a triangle mesh, with vertices provided in the egovehicle frame (NOT in the city frame).
         label_map: array of shape (H,W) representing a semantic segmentation label map.
         cam_timestamp: integer timestamp in nanoseconds of ...
-        camera_name: string representing ...
         rgb_img: array of shape (H,W,3) representing an RGB image.
         city_SE3_egovehicle: pose of the egovehicle within the city coordinate frame.
-        camera_config:
+        pinhole_camera: Pinhole camera object, w/ camera intrinsics + extrinsics.
 
     Returns:
         city_pts: array of shape (N,3) representined 3d coordinates.
         rgb_vals: array of shape (N,3) representing uint values in the range [0,255]
     """
-    camera_SE3_egovehicle = camera_config.extrinsic
-    camera_R_egovehicle = camera_SE3_egovehicle[:3, :3]
-    camera_t_egovehicle = camera_SE3_egovehicle[:3, 3]
-    camera_SE3_egovehicle = SE3(rotation=camera_R_egovehicle, translation=camera_t_egovehicle)
-    egovehicle_SE3_camera = camera_SE3_egovehicle.inverse()
+    egovehicle_SE3_camera = pinhole_camera.ego_SE3_cam
+    camera_name = pinhole_camera.cam_name
 
     origin = egovehicle_SE3_camera.translation.squeeze()
     img_h, img_w = rgb_img.shape[:2]
-    fx = camera_config.intrinsic[0, 0]
-    fy = camera_config.intrinsic[1, 1]
+    fx = pinhole_camera.intrinsics.fx_px
+    fy = pinhole_camera.intrinsics.fy_px
 
     rgb_vals = np.zeros((0, 3), dtype=np.uint8)
     ego_pts = np.zeros((0, 3), dtype=np.float32)
 
     # pass in meshgrid coords, only loop over (u,v) that are returned
-    uv = get_mesh_grid_as_point_cloud(min_x=0, max_x=img_w - 1, min_y=0, max_y=img_h - 1)
+    uv = mesh_grid_utils.get_mesh_grid_as_point_cloud(min_x=0, max_x=img_w - 1, min_y=0, max_y=img_h - 1)
 
     if label_map is not None:
         valid_semantics = mseg_interface.filter_by_semantic_classes(label_map, copy.deepcopy(uv).astype(np.int32))
@@ -108,16 +104,15 @@ def get_point_rgb_correspondences_raytracing(
         uv_valid = uv_valid[nonforegound]
 
     # TODO: pass in all pre-computed ray directions, and then prune based on uv index
-    ray_dirs_cam_fr = ray_gen_utils.compute_pixel_ray_directions_vectorized(uv_valid, fx, fy, img_w, img_h)
+    # ray directions in the camera coordinate frame
+    rays_camera = pinhole_camera.compute_pixel_ray_directions(uv_valid)
     # these rays are all facing down the camera barrel
     # Need to rotate them back into the egovehicle's coordinate system
-
+    egovehicle_SO3_camera = SE3(rotation=egovehicle_SE3_camera.rotation, translation=np.zeros(3))
     # triangles are in the egovehicle frame, so rays must also be transformed into the egovehicle frame.
-    ray_dirs = SE3(rotation=egovehicle_SE3_camera.rotation, translation=np.zeros(3)).transform_point_cloud(
-        ray_dirs_cam_fr
-    )
+    rays_egovehicle = egovehicle_SO3_camera.transform_point_cloud(rays_camera)
 
-    if ray_dirs.shape == (0, 3):
+    if rays_egovehicle.shape == (0, 3):
         # return empty city_pts, rgb_vals
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.uint8)
 
@@ -132,14 +127,14 @@ def get_point_rgb_correspondences_raytracing(
         triangle_matrix[i, 6:] = v2
 
     # print('Num triangles:', num_nearby_triangles)
-    # print('Num rays:', ray_dirs.shape)
-    num_rays = ray_dirs.shape[0]
+    # print('Num rays:', rays_egovehicle.shape)
+    num_rays = rays_egovehicle.shape[0]
     # put triangles into egovehicle frame, get ones within 30 meters away
 
     # initialize an empty buffer to be populated
     hits = np.zeros((num_rays, 3))
     tbv_raytracing.intersect_rays_with_tri_mesh(
-        copy.deepcopy(triangle_matrix), copy.deepcopy(origin), copy.deepcopy(ray_dirs), hits
+        copy.deepcopy(triangle_matrix), copy.deepcopy(origin), copy.deepcopy(rays_egovehicle), hits
     )
 
     inter_exists_arr = get_intersection_found_logicals(hits[:, 0])
@@ -148,7 +143,7 @@ def get_point_rgb_correspondences_raytracing(
 
     inter_points_arr = copy.deepcopy(hits)
 
-    # inter_exists_arr_eigen, inter_points_arr_eigen = raytracing.intersect_rays_with_tri_mesh(triangle_matrix, origin, ray_dirs)
+    # inter_exists_arr_eigen, inter_points_arr_eigen = raytracing.intersect_rays_with_tri_mesh(triangle_matrix, origin, rays_egovehicle)
 
     uv_w_intersect = uv_valid[inter_exists_arr]
     intersect_RGB = rgb_img[uv_w_intersect[:, 1], uv_w_intersect[:, 0]]
@@ -173,19 +168,17 @@ def get_intersection_found_logicals(hits_column: np.ndarray) -> np.ndarray:
 
 
 def get_point_rgb_correspondences_lidar(
-    avm: ArgoverseStaticMapV2,
-    config: Any,  # experiment config
+    avm: ArgoverseStaticMap,
+    config: BevRenderingConfig,
     label_map: np.ndarray,
     log_id: str,
-    data_dir: str,
-    log_calib_data,
+    loader: AV2SensorDataLoader,
     cam_timestamp: int,
     lidar_timestamp: int,
     lidar_pts: np.ndarray,
     camera_name: str,
     rgb_img: np.ndarray,
     city_SE3_egovehicle: SE3,
-    camera_config,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Project LiDAR into the image. Get 2d->3d correspondences.
 
@@ -194,37 +187,28 @@ def get_point_rgb_correspondences_lidar(
         config:
         label_map: array of shape (H,W) representing a semantic segmentation label map.
         log_id: string representing unique identifier for TbV log/scenario.
-        data_dir:
-        log_calib_data,
+        loader: data loader.
         cam_timestamp: integer timestamp in nanoseconds of ...
         lidar_timestamp: integer timestamp in nanoseconds of ...
         lidar_pts: array of shape ()
-        camera_name:
         rgb_img: array of shape (H,W,3) representing an RGB image.
         city_SE3_egovehicle: pose of the egovehicle within the city coordinate frame.
-        camera_config:
 
     Returns:
         city_pts_valid: array of shape (N,3) representined 3d coordinates.
         rgb_vals: array of shape (N,3) representing uint values in the range [0,255]
     """
-    points_h = calib_utils.point_cloud_to_homogeneous(lidar_pts).T
-    uv, uv_cam, valid_pts_bool = calib_utils.project_lidar_to_img_motion_compensated(
-        points_h,  # these are recorded at lidar_time
-        copy.deepcopy(log_calib_data),
-        camera_name,
-        cam_timestamp,
-        lidar_timestamp,
-        data_dir,
-        log_id,
+    uv, points_cam, is_valid = loader.project_ego_to_img_motion_compensated(
+        points_lidar_time=lidar_pts,
+        cam_name=camera_name,
+        cam_timestamp_ns=cam_timestamp,
+        lidar_timestamp_ns=lidar_timestamp,
+        log_id=log_id,
     )
 
     # round first so that we dont get out of bounds by one later
     # convert to int before indexing into label map
     uv = np.round(uv).astype(np.int32)
-
-    within_bnds = within_img_bnds(uv, camera_config)
-    is_valid = np.logical_and.reduce([valid_pts_bool, within_bnds])
 
     # TODO: use logical_and.reduce
     uv_valid = uv[is_valid]
@@ -238,7 +222,7 @@ def get_point_rgb_correspondences_lidar(
     elif config.filter_ground_with_map:
         # use the map for the classification
         lidar_pts_valid_city = city_SE3_egovehicle.transform_point_cloud(lidar_pts_valid)
-        is_ground = avm.raster_ground_height_layer.get_ground_points_boolean(point_cloud=lidar_pts_valid_city)
+        is_ground = avm.raster_ground_height_layer.get_ground_points_boolean(points_xyz=lidar_pts_valid_city)
 
         uv_valid = uv_valid[is_ground]
         lidar_pts_valid = lidar_pts_valid[is_ground]
@@ -251,19 +235,17 @@ def get_point_rgb_correspondences_lidar(
 
 def filter_to_ground_projected_pixels(
     lidar_pts: np.ndarray,
-    dl: SimpleArgoverseTrackingDataLoader,
+    loader: AV2SensorDataLoader,
     log_id: str,
-    data_dir: str,
     lidar_timestamp: int,
-    label_maps_dir: str,
+    label_maps_dir: Path,
 ) -> np.ndarray:
     """
 
     Args:
         lidar_pts: array of shape (N,3) representing 3d coordinates of LiDAR returns.
-        dl:
+        loader: data loader.
         log_id: string representing unique identifier for TbV log/scenario.
-        data_dir:
         lidar_timestamp: integer timestamp in nanoseconds of ...
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
 
@@ -271,17 +253,14 @@ def filter_to_ground_projected_pixels(
         valid_ground_pts: array of shape ()
     """
     num_lidar_pts = lidar_pts.shape[0]
-    points_h = calib_utils.point_cloud_to_homogeneous(lidar_pts).T
-    log_calib_data = dl.get_log_calibration_data(log_id)
 
     # start w/ assumption that the point is invalid
     valid_ground_pts = np.zeros(num_lidar_pts, dtype=bool)
 
     # for each camera frustum
     for camera_name in RING_CAMERA_LIST:
-        camera_config = calib_utils.get_calibration_config(log_calib_data, camera_name)
 
-        im_fpath = dl.get_closest_im_fpath(log_id, camera_name, lidar_timestamp)
+        im_fpath = loader.get_closest_im_fpath(log_id, camera_name, lidar_timestamp)
         if im_fpath is None:
             continue
 
@@ -289,14 +268,12 @@ def filter_to_ground_projected_pixels(
         cam_timestamp = Path(im_fpath).stem.split("_")[-1]
         cam_timestamp = int(cam_timestamp)
 
-        uv, uv_cam, valid_proj = calib_utils.project_lidar_to_img_motion_compensated(
-            copy.deepcopy(points_h),  # these are recorded at lidar_time
-            copy.deepcopy(log_calib_data),
-            camera_name,
-            cam_timestamp,
-            lidar_timestamp,
-            data_dir,
-            log_id,
+        uv, points_cam, valid_pts_bool = loader.project_ego_to_img_motion_compensated(
+            points_lidar_time=copy.deepcopy(lidar_pts),
+            cam_name=camera_name,
+            cam_timestamp_ns=cam_timestamp,
+            lidar_timestamp_ns=lidar_timestamp,
+            log_id=log_id,
         )
 
         # round first so that we dont get out of bounds by one later
@@ -309,7 +286,9 @@ def filter_to_ground_projected_pixels(
         # TODO: use logical_and.reduce
         uv_valid = uv[valid_projection]
 
-        label_map_path = mseg_interface.get_mseg_label_map_fpath_from_image_info(label_maps_dir, log_id, camera_name, img_fname_stem)
+        label_map_path = mseg_interface.get_mseg_label_map_fpath_from_image_info(
+            label_maps_dir, log_id, camera_name, img_fname_stem
+        )
         label_map = imageio.imread(label_map_path)
 
         valid_semantics = mseg_interface.filter_by_semantic_classes(label_map, uv_valid)

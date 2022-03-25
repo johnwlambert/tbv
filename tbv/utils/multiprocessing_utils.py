@@ -23,7 +23,7 @@ from typing import Any, List
 def send_list_to_workers_with_worker_id(num_processes: int, list_to_split: List[Any], worker_func_ptr, **kwargs):
     """Given a list of work, and a desired number of n workers, launch n worker processes
     that will each process 1/nth of the total work.
-    
+
     Args:
         num_processes: integer, number of workers to launch
         list_to_split:

@@ -24,7 +24,7 @@ import numpy as np
 
 
 def compute_pixel_ray_direction(u: float, v: float, fx: float, fy: float, img_w: int, img_h: int) -> np.ndarray:
-    """Generate rays not in camera coordinate frame (instead with z up)
+    """Generate rays in the camera coordinate frame.
 
        Find point P on image plane.
 
@@ -108,4 +108,3 @@ def compute_pixel_ray_directions_vectorized(uv: np.ndarray, fx: float, fy: float
     ray_dirs = ray_dirs / np.linalg.norm(ray_dirs, axis=1, keepdims=True)
     assert ray_dirs.shape[1] == 3
     return ray_dirs
-
