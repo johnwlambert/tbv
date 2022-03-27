@@ -9,6 +9,10 @@ The Trust but Verify (TbV) dataset is publicly available for download, as part o
 
 The Trust but Verify (TbV) dataset is the first public dataset for the task of high-definition (HD) map change detection, i.e. determining when sensor data and map data are no longer in agreement with one another due to real-world changes. We collected TbV by mining thousands of hours of data from over 9 months of autonomous vehicle fleet operations.
 
+![92me_Jd8_hstacked](https://user-images.githubusercontent.com/16724970/160265919-99b300fa-d7b9-4eaa-8889-46f8f142ee52.gif)
+![cJiXg_jDONA](https://user-images.githubusercontent.com/16724970/160265925-174a2958-e8d6-42ac-84a2-8e012b9e4e71.gif)
+![92me_Jd8_hstacked_map](https://user-images.githubusercontent.com/16724970/160266065-7cbccc84-daa7-4129-92da-0f50569f0aed.gif)
+
 ![0f0c_Aom_hstack](https://user-images.githubusercontent.com/29715011/160264648-cfad3571-3bfa-4acb-9831-d8f8693a7dc8.gif)
 ![xpxg_4ab4](https://user-images.githubusercontent.com/29715011/160264672-3e725689-395f-4fd5-847f-d9ba273e8c5c.gif)
 ![Hl998_zU1P_hstacked](https://user-images.githubusercontent.com/29715011/160264678-760a8167-0b1e-442d-8d73-e0487868c40a.gif)
