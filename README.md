@@ -13,20 +13,20 @@ The Trust but Verify (TbV) dataset is the first public dataset for the task of h
 
 An example from Pittsburgh:
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/16724970/160265919-99b300fa-d7b9-4eaa-8889-46f8f142ee52.gif" height="300">
-  <img src="https://user-images.githubusercontent.com/16724970/160266065-7cbccc84-daa7-4129-92da-0f50569f0aed.gif" height="300">
+  <img src="https://user-images.githubusercontent.com/16724970/160265919-99b300fa-d7b9-4eaa-8889-46f8f142ee52.gif" height="215">
+  <img src="https://user-images.githubusercontent.com/16724970/160266065-7cbccc84-daa7-4129-92da-0f50569f0aed.gif" height="215">
 </p>
 
 Examples from Palo Alto and Miami:
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/16724970/160265925-174a2958-e8d6-42ac-84a2-8e012b9e4e71.gif" height="300">
-  <img src="https://user-images.githubusercontent.com/29715011/160264648-cfad3571-3bfa-4acb-9831-d8f8693a7dc8.gif" height="300">
+  <img src="https://user-images.githubusercontent.com/16724970/160265925-174a2958-e8d6-42ac-84a2-8e012b9e4e71.gif" height="215">
+  <img src="https://user-images.githubusercontent.com/29715011/160264648-cfad3571-3bfa-4acb-9831-d8f8693a7dc8.gif" height="215">
 </p>
 
-Examples from Miami
+Examples from Miami:
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/29715011/160264672-3e725689-395f-4fd5-847f-d9ba273e8c5c.gif" height="300">
-  <img src="https://user-images.githubusercontent.com/29715011/160264678-760a8167-0b1e-442d-8d73-e0487868c40a.gif" height="300">
+  <img src="https://user-images.githubusercontent.com/29715011/160264672-3e725689-395f-4fd5-847f-d9ba273e8c5c.gif" height="215">
+  <img src="https://user-images.githubusercontent.com/29715011/160264678-760a8167-0b1e-442d-8d73-e0487868c40a.gif" height="215">
 </p>
 
 The dataset, consisting of maps and logs collected in six North American cities, is one of the largest AV datasets to date with more than 7.9 million images and will be made available to the public, along with code and models under the the CC BY-NC-SA 4.0 license. Above, we show before-and-after images that showcase a few examples of map changes featured in TbV logs.
