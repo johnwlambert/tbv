@@ -18,11 +18,11 @@ from pathlib import Path
 import av2.utils.dense_grid_interpolation as dense_grid_interpolation
 import imageio
 import numpy as np
-from argoverse.utils.se2 import SE2
 
 import tbv.utils.logger_utils as logger_utils
 from tbv.rendering_config import BevRenderingConfig
 from tbv.utils.median_filter import form_aggregate_rgb_img
+from tbv.utils.se2 import SE2
 
 
 logger = logger_utils.get_logger()

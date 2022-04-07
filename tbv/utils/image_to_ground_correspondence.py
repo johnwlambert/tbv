@@ -24,13 +24,11 @@ import time
 from pathlib import Path
 from typing import Any, Tuple
 
+import av2.geometry.mesh_grid as mesh_grid_utils
 import imageio
 import numpy as np
-
-from argoverse.utils.camera_stats import RING_CAMERA_LIST
-
 from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
-import av2.geometry.mesh_grid as mesh_grid_utils
+from av2.datasets.sensor.constants import RingCameras
 from av2.geometry.se3 import SE3
 from av2.map.map_api import ArgoverseStaticMap
 from av2.geometry.camera.pinhole_camera import PinholeCamera
@@ -258,8 +256,8 @@ def filter_to_ground_projected_pixels(
     valid_ground_pts = np.zeros(num_lidar_pts, dtype=bool)
 
     # for each camera frustum
-    for camera_name in RING_CAMERA_LIST:
-
+    for camera_enum in RingCameras:
+        camera_name = camera_enum.value
         im_fpath = loader.get_closest_im_fpath(log_id, camera_name, lidar_timestamp)
         if im_fpath is None:
             continue

@@ -18,6 +18,7 @@ import torch
 from torch import nn
 
 import tbv.models.resnet_factory as resnet_factory
+from tbv.rendering_config import SensorViewpoint
 
 NUM_RGB_CHANNELS = 3
 NUM_MAP_CHANNELS = 3
@@ -47,7 +48,7 @@ class EarlyFusionCEResnet(nn.Module):
         resnet = resnet_factory.get_vanilla_resnet_model(num_layers, pretrained)
         self.inplanes = 64
 
-        if viewpoint == "egoview":
+        if viewpoint == SensorViewpoint.EGOVIEW:
             num_labelmap_channels = NUM_LABELMAP_EGOVIEW_CHANNELS
         else:
             num_labelmap_channels = NUM_LABELMAP_BEV_CHANNELS
@@ -114,10 +115,12 @@ class EarlyFusionCEResnetWLabelMap(nn.Module):
         resnet = resnet_factory.get_vanilla_resnet_model(num_layers, pretrained)
         self.inplanes = 64
 
-        if viewpoint == "egoview":
+        if viewpoint == SensorViewpoint.EGOVIEW:
             num_labelmap_channels = NUM_LABELMAP_EGOVIEW_CHANNELS
-        else:
+        elif viewpoint == SensorViewpoint.BEV:
             num_labelmap_channels = NUM_LABELMAP_BEV_CHANNELS
+        else:
+            raise ValueError("Invalid viewpoint type")
 
         num_inchannels = NUM_RGB_CHANNELS + num_labelmap_channels + NUM_MAP_CHANNELS
         # resnet with more channels in first layer (9 instead of 3 or 6)

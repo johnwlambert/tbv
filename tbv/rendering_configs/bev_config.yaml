@@ -1,6 +1,4 @@
 
-
-
 BevRenderingConfig:
 
     _target_: tbv.rendering_config.BevRenderingConfig
@@ -11,20 +9,18 @@ BevRenderingConfig:
     render_reflectance: False
     recompute_segmentation: False
     projection_method: ray_tracing
+    sensor_modality: rgb
 
-    dilation: 20 # 20 m in all directions
+    range_m: 20 # 20 m in all directions
 
-    # tbv_dataroot: /Users/jlambert/Downloads/TbV_v0.1
     # rendered_dataset_dir: /Users/jlambert/Downloads/TbV_v0.1/rendered_egoview_2021_09_03
 
-    tbv_dataroot: /home/jlambert/TbV_v0.1
-    rendered_dataset_dir: /home/jlambert/TbV_v0.1/rendered_bev_2021_09_04
+    tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset
+    rendered_dataset_dir: /home/ubuntu/rendered_bev_2022_03_10
 
     render_test_set_only: True
     jitter_vector_map: True
     max_dist_to_del_crosswalk: 15 # meters, augmentation will abort if not found in range
-    delete_log_after_rendering: False
-    viewpoint: bev
 
     use_histogram_matching: False
     make_bev_semantic_img: False # whether to render RGB or semantics in BEV
@@ -32,7 +28,7 @@ BevRenderingConfig:
     filter_ground_with_semantics: False # quite expensive
     filter_ground_with_map: True # using ground height
     max_ground_mesh_range_m: 25 # trace rays to triangles up to 20 m away
-    resolution: 0.02 # meters/pixel
+    resolution_m_per_px: 0.02 # meters/pixel
     use_median_filter: False
     semantic_img_interp_type: # nearest # linear for rgb, but nearest for label map
     sensor_img_interp_type: linear # linear for rgb, but nearest for label map

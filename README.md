@@ -126,11 +126,27 @@ python scripts/train.py --config_name {CONFIG_NAME}
 
 ## Model Evaluation
 
+**Pretrained Models** are available [here](https://github.com/johnwlambert/tbv/releases/tag/v0.1_tbv_pretrained_models).
+
+To run model inference with a model trained to operate on the **ego-view**:
 ```bash
-python scripts/test.py --config_name {CONFIG_NAME}
+python scripts/test.py --rendering_config_name egoview_config.yaml --training_config_name 
 ```
 
-**Pretrained Models**: will be released shortly.
+To run model inference with a model trained to operate on the **BEV**:
+```bash
+python scripts/test.py --rendering_config_name bev_config.yaml --training_config_name 
+```
+
+```bash
+python scripts/test.py --rendering_config_name egoview_config.yaml --training_config_name train_2021_03_01_egoview_w_labelmap_config_earlyfusion_dropout_v1.yaml --gpu_ids -1 --ckpt_fpath /Users/johnlambert/Downloads/6d3bfc13-1da4-49f0-bf6d-f6b1fc9647d8.pth
+```
+
+
+
+
+
+
 
 ## Citing this work
 ```BibTeX

@@ -20,7 +20,6 @@ log, and so N processes handle N logs at a time (one per process).
 import argparse
 import glob
 import logging
-import numpy as np
 import os
 import random
 import shutil
@@ -29,29 +28,27 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, List, Mapping, Tuple, Union
 
+import cv2
+cv2.ocl.setUseOpenCL(False)
+import numpy as np
+import torch
+from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
+from av2.datasets.sensor.constants import RingCameras
+
 import tbv.utils.logger_utils as logger_utils
-from tbv.utils.dir_utils import check_mkdir
 
 # must come before other imports, so that things get routed to log file.
 logger_utils.setup_logging()
 
 import tbv.rendering_config as rendering_config
 from tbv.data_splits import LOG_IDS_TO_RENDER
-from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig
+from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig, SensorViewpoint
 from tbv.rendering.orthoimagery_generator import execute_orthoimagery_job
-
-import cv2
-import torch
-
-cv2.ocl.setUseOpenCL(False)
-from argoverse.utils.camera_stats import RING_CAMERA_LIST
-from argoverse.utils.subprocess_utils import run_command
-from argoverse.utils.json_utils import read_json_file
-
-from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
-
 from tbv.rendering.egoview_vector_map_rendering_utils import execute_egoview_job
 from tbv.utils.multiprocessing_utils import send_list_to_workers_with_worker_id
+
+
+ORDERED_RING_CAMERA_LIST = [cam_enum.value for cam_enum in RingCameras]
 
 
 def render_log_imagery(
@@ -72,7 +69,7 @@ def render_log_imagery(
     """
     logger_utils.setup_logging()
 
-    if exp_cfg.viewpoint == "bev":
+    if exp_cfg.viewpoint == SensorViewpoint.BEV:
         # Generate bird's eye view image
         execute_orthoimagery_job(
             dataloader=dataloader,
@@ -81,7 +78,7 @@ def render_log_imagery(
             config=exp_cfg,
         )
 
-    elif exp_cfg.viewpoint == "egoview":
+    elif exp_cfg.viewpoint == SensorViewpoint.EGOVIEW:
         execute_egoview_job(
             dataloader=dataloader,
             log_id=log_id,
@@ -112,14 +109,14 @@ def render_log_dataset(
         dataloader: dataloader object for Argoverse 2.0-style data.
     """
 
-    for camera_name in RING_CAMERA_LIST:
+    for camera_name in ORDERED_RING_CAMERA_LIST:
         if not Path(f"{log_dir}/sensors/cameras/{camera_name}").exists():
             print(f"Missing one of the camera directories: {log_id} {camera_name}")
             logging.info("Missing one of the camera directories %s %s", log_id, camera_name)
             continue
 
     all_label_maps_exist = True
-    for camera_name in RING_CAMERA_LIST:
+    for camera_name in ORDERED_RING_CAMERA_LIST:
         cam_label_maps_found = all(
             [
                 Path(
@@ -144,6 +141,7 @@ def dataset_renderer_worker(
     log_ids: List[str], start_idx: int, end_idx: int, worker_id: int, kwargs: Mapping[str, Any]
 ) -> None:
     """Given a list of log_ids to render call render_log_dataset on each of them.
+    
     Args:
         log_ids: list of strings
         start_idx: integer
@@ -194,7 +192,7 @@ def dataset_renderer_worker(
         # 	continue # TODO: check if seamseg label maps exist
 
         try:
-            log_dir = f"{local_dataset_dir}/logs/{log_id}"
+            log_dir = Path(local_dataset_dir) / "logs" / log_id
             render_log_dataset(
                 exp_cfg=exp_cfg,
                 local_dataset_dir=local_dataset_dir,
@@ -203,19 +201,9 @@ def dataset_renderer_worker(
                 mseg_semantic_repo_root=mseg_semantic_repo_root,
                 dataloader=dataloader,
             )
-            # # Will be deleted even if exception occurs
-            # if exp_cfg.delete_log_after_rendering:
-            #     check_rmtree(slice_extraction_dir)
 
         except Exception as e:
             logging.exception(f"Extraction failed for {log_id}")
-
-
-def check_rmtree(dirpath: str) -> None:
-    """ """
-    if Path(dirpath).exists():
-        shutil.rmtree(dirpath)
-    assert not Path(dirpath).exists()
 
 
 def render_dataset_all_logs(
@@ -238,9 +226,6 @@ def render_dataset_all_logs(
 
     if not (Path(exp_cfg.tbv_dataroot) / "logs").exists():
         raise RuntimeError("TbV Dataset logs must be saved to {DATAROOT}/logs/")
-
-    # check_mkdir(f"{local_dataset_dir}/logs")
-    # check_mkdir(f"{local_dataset_dir}/maps")
 
     log_ids = LOG_IDS_TO_RENDER
     num_processes = exp_cfg.num_processes
@@ -271,18 +256,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_name",
         type=str,
-        default="",
-        # required=True,
+        required=True,
         help="provide the name of the config to use for rendering",
     )
-
     parser.add_argument(
         "--mseg_semantic_repo_root",
         type=str,
-        default="/Users/jlambert/Downloads/mseg-semantic",
-        # f"{HOME_DIR}/Documents/mseg-semantic"
-        # f"{HOME_DIR}/mseg-semantic"
-        #
+        default="/Users/johnlambert/Downloads/mseg-semantic",
         # required=True,
         help="provide the name of the config to use for rendering",
     )
@@ -291,5 +271,6 @@ if __name__ == "__main__":
     logging.info(args)
     print(args)
 
+    # load config for experiment
     exp_config = rendering_config.load_rendering_config(args.config_name)
     render_dataset_all_logs(exp_cfg=exp_config, mseg_semantic_repo_root=Path(args.mseg_semantic_repo_root))

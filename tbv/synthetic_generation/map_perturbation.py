@@ -27,15 +27,13 @@ from av2.map.map_api import ArgoverseStaticMap
 from av2.map.lane_segment import LaneSegment, LocalLaneMarking
 from av2.map.map_primitives import Polyline
 
-from argoverse.utils.datetime_utils import generate_datetime_string
-
 import tbv.rendering.bev_map_renderer as bev_map_renderer
 import tbv.synthetic_generation.synthetic_crosswalk_generator as synthetic_crosswalk_generator
 from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig
 from tbv.common.local_vector_map import LocalVectorMap, LocalPedCrossing
-from tbv.utils.dir_utils import check_mkdir
-
 from tbv.common.tbv_lane_segment import TbvLaneSegment
+from tbv.utils.datetime_utils import generate_datetime_string
+
 
 WPT_INFTY_NORM_INTERP_NUM = 50
 

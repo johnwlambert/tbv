@@ -29,7 +29,6 @@ import cv2
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
-from colour import Color
 
 import av2.rendering.color as color_utils
 import av2.utils.io as io_utils
@@ -42,14 +41,16 @@ from av2.geometry.camera.pinhole_camera import PinholeCamera
 
 # cv2.ocl.setUseOpenCL(False)
 
-from argoverse.utils.cv2_plotting_utils import draw_polygon_cv2
-from argoverse.utils.camera_stats import RING_CAMERA_LIST
+from av2.datasets.sensor.constants import RingCameras
 
-import tbv.utils.frustum_utils as frustum_utils
-import tbv.utils.histogram_matching as histogram_matching_utils
+try:
+    import tbv.utils.histogram_matching as histogram_matching_utils
+except:
+    pass
 import tbv.utils.image_to_ground_correspondence as correspondence_utils
 import tbv.utils.mseg_interface as mseg_interface
 import tbv.synthetic_generation.map_perturbation as map_perturbation_engine
+import tbv.utils.cv2_img_utils as cv2_img_utils
 import tbv.utils.triangle_grid_utils as triangle_grid_utils
 from tbv.rendering.bev_sensor_utils import make_bev_img_from_sensor_data
 from tbv.rendering_config import BevRenderingConfig
@@ -67,6 +68,8 @@ N_SWEEPS_BEFORE_RENDERING = 10
 
 # AV has to have moved at least 5 meters to render next frame (hyperparameter)
 EGOMOTION_DIST_THRESH_M = 5
+
+ORDERED_RING_CAMERA_LIST = [cam_enum.value for cam_enum in RingCameras]
 
 
 logger = logging.getLogger(__name__)
@@ -135,15 +138,15 @@ def render_orthoimagery_for_logs_raytracing(
         # ensure all frustums will exist
         if any(
             [
-                dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp) is None
-                for camera_name in histogram_matching_utils.ORDERED_CAMERA_LIST
+                dataloader.get_closest_img_fpath(log_id, camera_enum.value, lidar_timestamp) is None
+                for camera_name in ORDERED_RING_CAMERA_LIST
             ]
         ):
             continue
 
         if not config.render_vector_map_only:
             # actually do the ray-tracing!
-            for j, camera_name in enumerate(histogram_matching_utils.ORDERED_CAMERA_LIST):
+            for j, camera_name in enumerate(ORDERED_RING_CAMERA_LIST):
                 # print(f'{lidar_timestamp} On {i} -> {camera_name}')
 
                 if config.make_bev_semantic_img:
@@ -682,7 +685,7 @@ def render_virtual_ground_mesh_img(
         uv_color = (255 * colors_arr[rgb_bin]).astype(np.int32).reshape(-1, 3)
         uv_color_bgr = np.fliplr(uv_color).squeeze()
         uv_color_bgr = tuple([int(x) for x in uv_color_bgr])
-        img = draw_polygon_cv2(uv, img, uv_color_bgr)
+        img = cv2_img_utils.draw_polygon_cv2(uv, img, uv_color_bgr)
 
     if visualize:
         plt.imshow(img[:, :, ::-1])

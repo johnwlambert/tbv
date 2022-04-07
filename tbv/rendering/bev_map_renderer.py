@@ -22,19 +22,17 @@ import math
 from pathlib import Path
 from typing import Tuple
 
-import cv2
-import numpy as np
-
-import argoverse.utils.cv2_plotting_utils as cv2_plotting_utils
-
 import av2.geometry.interpolate as interp_utils
 import av2.geometry.polyline_utils as polyline_utils
+import cv2
+import numpy as np
 from av2.geometry.mesh_grid import get_mesh_grid_as_point_cloud
 from av2.geometry.sim2 import Sim2
 from av2.map.lane_segment import LaneMarkType, LaneSegment
 from av2.map.map_api import RasterLayerType
 
 import tbv.rendering.crosswalk_renderer as crosswalk_renderer
+import tbv.utils.cv2_img_utils as cv2_img_utils
 from tbv.common.local_vector_map import LocalVectorMap
 
 
@@ -175,7 +173,7 @@ def bev_render_window(
     # ---- Draw the lane polygons first -----------------------------------------------
     for _, vls in lvm.nearby_lane_segment_dict.items():
         img_bndry = image_Sim2_city.transform_from(vls.polygon_boundary[:, :2])
-        cv2_plotting_utils.draw_polygon_cv2(img_bndry, bev_img, color=GRAY_BGR)
+        cv2_img_utils.draw_polygon_cv2(img_bndry, bev_img, color=GRAY_BGR)
 
     for _, vls in lvm.nearby_lane_segment_dict.items():
         if vls.render_r_bound:

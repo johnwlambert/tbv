@@ -1,0 +1,29 @@
+BevRenderingConfig:
+  _target_: tbv.rendering_config.BevRenderingConfig
+
+    num_processes: 8
+    render_vector_map_only: False
+    render_reflectance: False
+    recompute_segmentation: False
+
+    range_m: 20  # 20 m in all directions
+
+    tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset
+    rendered_dataset_dir: ""
+
+    render_test_set_only: True
+    jitter_vector_map: True
+    max_dist_to_del_crosswalk: 15 # meters, augmentation will abort if not found in range
+    projection_method: ray_tracing
+    use_histogram_matching: False
+    make_bev_semantic_img: False  # whether to render RGB or semantics in BEV
+    render_reflectance_only: False
+    filter_ground_with_semantics: False # quite expensive
+    filter_ground_with_map: True # using ground height
+    max_ground_mesh_range_m: 25  # trace rays to triangles up to 25 m away
+    resolution_m_per_px: 0.02 # meters/pixel
+    use_median_filter: False
+    sensor_img_interp_type: "linear"  # linear for rgb, but nearest for label map, or "None"
+    # linear for rgb, but nearest for label map, if not rendering semantics, optional
+    semantic_img_interp_type: "nearest"
+    sensor_modality: "rgb"  # `rgb` or `reflectance`?

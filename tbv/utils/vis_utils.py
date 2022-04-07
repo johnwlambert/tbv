@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 from typing import List
 
+import cv2
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,6 +24,11 @@ from mseg.utils.cv2_utils import add_text_cv2
 
 from tbv.utils.z1_egovehicle_mask_utils import get_z1_ring_front_center_mask
 
+
+FOREST_GREEN_RGB = (34, 139, 34)  # forest green
+RED_RGB = (255, 0, 0)
+
+WHITE_RGB = (255, 255, 255)
 
 def hstack_imgs_w_border(imgs: List[np.ndarray], border_sz: int = 30) -> np.ndarray:
     """Stack images horizontally, with white border between them.
@@ -52,7 +58,7 @@ def hstack_imgs_w_border(imgs: List[np.ndarray], border_sz: int = 30) -> np.ndar
 
 def form_vstacked_imgs(img_list: List[np.ndarray], border_sz: int = 30) -> np.ndarray:
     """Concatenate images along a vertical axis and save them.
-    
+
     Args:
         img_list: list of Numpy arrays representing different RGB visualizations of same image,
             must all be of same shape
@@ -85,13 +91,12 @@ def form_vstacked_imgs(img_list: List[np.ndarray], border_sz: int = 30) -> np.nd
 
 
 def blend_imgs_preserve_contrast(img1: np.ndarray, img2: np.ndarray, alpha1: float = 0.4):
-    """
-    Interpolate between (multiplying the images) and taking their weighted average
+    """Interpolate between (multiplying the images) and taking their weighted average
 
     Args:
-        img1
-        img2
-        alpha1
+        img1: array of shape (H,W,3)
+        img2: array of shape (H,W,3)
+        alpha1: blending coefficient.
 
     Returns:
         blended_img
@@ -164,20 +169,25 @@ def save_egoview_sensor_map_semantics_triplet(
     sensor_img_fpath: str,
     map_img_fpath: str,
     labelmap_fpath: str,
-    save_dir: str,
+    save_dir: Path,
     render_text: bool,
+    downsample: bool = True
 ) -> None:
-    """
+    """Render triplet of (sensor image, map image, blended combination) side-by-side.
 
     Args:
-        is_match:
+        is_match: whether the map and captured real-world scene are in agreement.
         img_fname:
-        sensor_img_fpath:
-        map_img_fpath:
-        labelmap_fpath:
-        save_dir:
-        render_text:
+        sensor_img_fpath: path to an RGB image captured by an onboard camera.
+        map_img_fpath: path to a rendering of the onboard map, in the same camera frustum/viewport.
+        labelmap_fpath: (not currently used)
+        save_dir: path to local directory, where visualizations will be saved.
+        render_text: whether to render a text version of label (i.e. "MATCH" or "MISMATCH") on blended version.
+        downsample:
     """
+    if not isinstance(save_dir, Path):
+        raise ValueError("save_dir argument must be a pathlib.Path object.")
+
     sensor_img = imageio.imread(sensor_img_fpath)
     no_change_img = imageio.imread(map_img_fpath)
     if Path(labelmap_fpath).exists():
@@ -188,12 +198,10 @@ def save_egoview_sensor_map_semantics_triplet(
         semantic_img = np.zeros((h, w), dtype=np.uint8)
 
     # apply foregound mask to sensor_img
-
     sensor_img = remove_foreground_front_center(sensor_img)
     h, w, _ = sensor_img.shape
 
     # blended_img = blend_imgs(img1=sensor_img, img2=no_change_img, alpha1=0.7)
-
     blended_img = blend_imgs_preserve_contrast(sensor_img, no_change_img)
 
     if render_text:
@@ -202,23 +210,24 @@ def save_egoview_sensor_map_semantics_triplet(
             text = "MATCH"
             x = w // 5
             font_scale = 10
-            font_color = (34, 139, 34)  # forest green
+            font_color = FOREST_GREEN_RGB
         else:
             text = "MISMATCH"
             x = 100
             font_scale = 7
-            font_color = (255, 0, 0)
+            font_color = RED_RGB
         y = h // 3
 
         blended_img = add_text_cv2(
             blended_img, text, coords_to_plot_at=(x, y), font_color=font_color, font_scale=font_scale, thickness=10
         )
 
+        # within each sub-image, plot text 100 pixels from bottom of image, and 300 pixels to the right of left border.
         sensor_img = add_text_cv2(
             sensor_img,
             text="ONLINE IMAGERY",
             coords_to_plot_at=(300, h - 100),
-            font_color=(255, 255, 255),
+            font_color=WHITE_RGB,
             font_scale=3,
             thickness=5,
         )
@@ -227,7 +236,7 @@ def save_egoview_sensor_map_semantics_triplet(
             no_change_img,
             text="ONBOARD MAP",
             coords_to_plot_at=(300, h - 100),
-            font_color=(255, 255, 255),
+            font_color=WHITE_RGB,
             font_scale=3,
             thickness=5,
         )
@@ -238,9 +247,12 @@ def save_egoview_sensor_map_semantics_triplet(
     # plt.imshow(triplet_img)
     # plt.show()
 
-    os.makedirs(save_dir, exist_ok=True)
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-    imageio.imwrite(f"{save_dir}/{img_fname}_ismatch{is_match}.jpg", triplet_img)
+    if downsample:
+        triplet_img = cv2.resize(triplet_img, (0,0), fx=0.5, fy=0.5)
+
+    imageio.imwrite(save_dir / f"{img_fname}_ismatch{is_match}.jpg", triplet_img)
     #
     # plt.axis('off')
     #
@@ -251,3 +263,27 @@ def save_egoview_sensor_map_semantics_triplet(
     # #plt.show()
     # plt.savefig(f'test_examples/{log_id_ts}.jpg', dpi=500)
     # plt.close('all')
+
+
+def test_save_egoview_sensor_map_semantics_triplet() -> None:
+    """ """
+    tbv_dataroot = ""
+    rendered_dataset_dir = ""
+    sensor_img_fpath = f"{tbv_dataroot}/logs/MiLpa3m1rDRmAFNDwc1T4kbnhB86Fe5M__2020-06-04-Z1F0055/ring_front_center/ring_front_center_315971463599927215.jpg"
+    map_img_fpath = f"{rendered_dataset_dir}/train_2021_01_04_egoview_v1/_depthocclusionreasoningTrue/no_change/MiLpa3m1rDRmAFNDwc1T4kbnhB86Fe5M__2020-06-04-Z1F0055_ring_front_center_315971463599927215_vectormap.jpg"
+    labelmap_fpath = f"{tbv_dataroot}/logs/MiLpa3m1rDRmAFNDwc1T4kbnhB86Fe5M__2020-06-04-Z1F0055/seamseg_label_maps_ring_front_center/ring_front_center_315971463599927215.png"
+
+    img_fname = "blah"
+    is_match = False
+    save_egoview_sensor_map_semantics_triplet(
+        is_match,
+        img_fname,
+        sensor_img_fpath,
+        map_img_fpath,
+        labelmap_fpath,
+        save_dir="/home/jlambert/Documents/hd-map-change-detection/blending_experiments",
+    )
+
+
+if __name__ == "__main__":
+    test_save_egoview_sensor_map_semantics_triplet()

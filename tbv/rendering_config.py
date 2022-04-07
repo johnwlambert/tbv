@@ -13,12 +13,18 @@ Originating Authors: John Lambert
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, Union
 
 import hydra
 from hydra.utils import instantiate
 
 # todo: put default args at the end
+
+class SensorViewpoint(str, Enum):
+    """ """
+    EGOVIEW = "EGOVIEW"
+    BEV = "BEV"
 
 
 @dataclass
@@ -27,8 +33,16 @@ class RenderingConfig:
 
     Args:
         num_processes
+        render_vector_map_only: whether to render only the map (i.e. not the sensor data).
+        render_reflectance:
+        recompute_segmentation:
         range_m: maximum range from egovehicle to consider for rendering (by l-infinity norm).
         tbv_dataroot: path to root TbV Dataset directory.
+        rendered_dataset_dir: 
+
+        render_test_set_only: whether to render without any synthetic data augmentation (for eval only).
+        jitter_vector_map:
+        max_dist_to_del_crosswalk:
         viewpoint: dataset rendering perspective, either "bev" or "egoview"
     """
 
@@ -46,8 +60,6 @@ class RenderingConfig:
     render_test_set_only: bool
     jitter_vector_map: bool
     max_dist_to_del_crosswalk: float
-    delete_log_after_rendering: bool
-    viewpoint: str
 
 
 @dataclass
@@ -58,6 +70,11 @@ class EgoviewRenderingConfig(RenderingConfig):
     """
 
     use_depth_map_for_occlusion: bool
+
+    @property
+    def viewpoint(self) -> str:
+        """ """
+        return SensorViewpoint.EGOVIEW
 
 
 @dataclass
@@ -87,10 +104,15 @@ class BevRenderingConfig(RenderingConfig):
     semantic_img_interp_type: Optional[str] = None
     sensor_modality: str = "rgb"  # `rgb` or `reflectance`?
 
+    @property
+    def viewpoint(self) -> str:
+        """ """
+        return SensorViewpoint.BEV
+
 
 def load_bev_rendering_config(config_name: str) -> BevRenderingConfig:
     """Get experiment config for rendering maps and sensor data in a bird's eye view."""
-    with hydra.initialize_config_module(config_module="tbv.configs"):
+    with hydra.initialize_config_module(config_module="tbv.rendering_configs"):
         # config is relative to the tbv module
         cfg = hydra.compose(config_name=config_name)
         config: BevRenderingConfig = instantiate(cfg.BevRenderingConfig)
@@ -100,7 +122,7 @@ def load_bev_rendering_config(config_name: str) -> BevRenderingConfig:
 
 def load_egoview_rendering_config(config_name: str) -> EgoviewRenderingConfig:
     """Get experiment config for rendering maps and sensor data in the ego-view."""
-    with hydra.initialize_config_module(config_module="tbv.configs"):
+    with hydra.initialize_config_module(config_module="tbv.rendering_configs"):
         # config is relative to the tbv module
         cfg = hydra.compose(config_name=config_name)
         config: EgoviewRenderingConfig = instantiate(cfg.EgoviewRenderingConfig)

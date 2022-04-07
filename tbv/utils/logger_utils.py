@@ -15,9 +15,7 @@ Originating Authors: John Lambert
 import logging
 from pathlib import Path
 
-import argoverse.utils.datetime_utils as datetime_utils
-
-import tbv.utils.dir_utils as dir_utils
+import tbv.utils.datetime_utils as datetime_utils
 
 
 LOGGING_DIR = Path(__file__).resolve().parent.parent.parent / "logging_output"

@@ -12,8 +12,9 @@ International License.
 Originating Authors: John Lambert
 """
 
-from typing import List
+from typing import List, Tuple
 
+import cv2
 import numpy as np
 
 
@@ -40,3 +41,27 @@ def hstack_imgs(img_list: List[np.ndarray]) -> np.ndarray:
         running_w += w
 
     return hstack_img
+
+
+def draw_polygon_cv2(points: np.ndarray, image: np.ndarray, color: Tuple[int, int, int]) -> np.ndarray:
+    """Draw a polygon onto an image using the given points and fill color.
+    
+    These polygons are often non-convex, so we cannot use cv2.fillConvexPoly().
+    Note that cv2.fillPoly() accepts an array of array of points as an
+    argument (i.e. an array of polygons where each polygon is represented
+    as an array of points).
+    
+    Ref: https://github.com/argoai/argoverse-api/blob/master/argoverse/utils/cv2_plotting_utils.py#L116
+
+    Args:
+        points: Array of shape (N, 2) representing all points of the polygon
+        image: Array of shape (M, N, 3) representing the image to be drawn onto
+        color: Tuple of shape (3,) with a BGR format color
+    Returns:
+        image: Array of shape (M, N, 3) with polygon rendered on it
+    """
+    points = np.array([points])
+    points = points.astype(np.int32)
+    image = cv2.fillPoly(image, points, color)
+    return image
+

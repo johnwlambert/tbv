@@ -9,44 +9,42 @@ channels:
   - defaults
 dependencies:
   # python essentials
-  - python=3.8
+  - python>=3.8
   - pip
   # formatting and dev environment
   - black
   - coverage
+  - flake8
   - mypy
   - pylint
   - pytest
-  - flake8
   # dask and related
   - dask # same as dask[complete] pip distribution
   - python-graphviz
   # core functionality and APIs
-  - matplotlib==3.4.2
+  - matplotlib>=3.4.2
   - networkx
   - numpy
-  - nodejs
   - pandas
   - pillow>=8.0.1
   - scikit-learn
+  - hydra-core
   # 3rd party algorithms for different modules
-  - cudatoolkit=10.2
+  - captum
+  - cudatoolkit=11.3
+  - mapbox_earcut
   - opencv # preferring conda-forge's distribution as it provides the latest distribution
   - pytorch
+  - shapely
   - torchvision
-  - hydra-core
-  - captum
-  - mapbox_earcut
   - trimesh
   # io
   - h5py
-  - plotly=4.14.3
+  - plotly>=4.14.3
   - tabulate
   - imageio
   - pip:
-    - pydegensac
-    - argoverse @ git+https://github.com/argoai/argoverse-api.git@master
-    - open3d==0.13.0
-    - mseg @ git+https://github.com/mseg-dataset/mseg-api.git@master
+    - av2==0.1.0
     - omegaconf
+    - open3d>=0.13.0
     - scipy>=1.6.0

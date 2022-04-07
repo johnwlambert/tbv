@@ -14,15 +14,13 @@ Originating Authors: John Lambert
 
 from typing import Tuple
 
-import numpy as np
-
-import argoverse.utils.cv2_plotting_utils as cv2_plotting_utils
-
 import av2.utils.depth_map_utils as depth_map_utils
+import numpy as np
 from av2.geometry.camera.pinhole_camera import PinholeCamera
 from av2.map.map_api import RasterLayerType
 from av2.rendering.map import EgoViewMapRenderer
 
+import tbv.utils.cv2_img_utils as cv2_img_utils
 import tbv.utils.triangulation_2d as triangulation_2d
 
 
@@ -123,6 +121,6 @@ def render_triangles_in_egoview(
         vert_start_idx = orig_tri_idx * 3
         vert_end_idx = vert_start_idx + 3
         tri_uv = uv[vert_start_idx:vert_end_idx].astype(np.int32)
-        img_bgr = cv2_plotting_utils.draw_polygon_cv2(tri_uv, img_bgr, color_bgr)
+        img_bgr = cv2_img_utils.draw_polygon_cv2(tri_uv, img_bgr, color_bgr)
 
     return img_bgr

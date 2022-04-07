@@ -68,6 +68,16 @@ def test_prune_triangles_zero_yaw() -> None:
             assert np.allclose(gt_frustum_triangles[i][v], frustum_triangles[i][v])
 
 
+def test_get_flat_plane_grid_triangles() -> None:
+    """ """
+    nearby_triangles = get_flat_plane_grid_triangles(range_m=1)
+    assert len(nearby_triangles) == 8
+
+    for range_m in range(30):
+        tris = get_flat_plane_grid_triangles(range_m)
+        print(f"{len(tris)} at range={range_m}")
+
+
 def test_prune_triangles_back_frustum():
     """
     Look backwards (rotated around by 180 degrees)
@@ -85,3 +95,9 @@ def test_prune_triangles_back_frustum():
     gt_inside_frustum = np.array([True, True, True, False, False, False, False, False], dtype=bool)
     assert np.allclose(inside_frustum, gt_inside_frustum)
     assert len(frustum_triangles) == 3
+
+
+if __name__ == "__main__":
+    """ """
+    test_prune_triangles_zero_yaw()
+    test_prune_triangles_back_frustum()

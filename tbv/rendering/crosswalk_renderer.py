@@ -35,18 +35,16 @@ no guarantee the vertices are ordered CW or CCW (no consistent winding order).
 import math
 from typing import List, Tuple, Union
 
-import matplotlib.pyplot as plt
-import numpy as np
-from argoverse.utils.cv2_plotting_utils import draw_polygon_cv2
-
-from descartes.patch import PolygonPatch
-from shapely.geometry import LineString, Polygon
-
 import av2.geometry.interpolate as interp_utils
 import av2.geometry.polyline_utils as polyline_utils
+import av2.rendering.vector as vector_rendering_utils
+import matplotlib.pyplot as plt
+import numpy as np
 from av2.rendering.map import EgoViewMapRenderer
+from shapely.geometry import LineString, Polygon
 
 import tbv.rendering.polygon_rasterization as polygon_rasterization
+import tbv.utils.cv2_img_utils as cv2_img_utils
 
 
 GRAY_BGR = [168, 168, 168]
@@ -120,10 +118,14 @@ def render_crosshatching_bev(
         b2 = edge2_pts[i + 1]
 
         quad = np.vstack([a1, a2, b2, b1, a1])
-        draw_polygon_cv2(quad, img, color)
+        cv2_img_utils.draw_polygon_cv2(quad, img, color)
 
         if mpl_vis:
-            plot_polygon_patch(quad, ax, color)
+            vector_rendering_utils.plot_polygon_patch_mpl(
+                polygon_pts=quad,
+                ax=ax,
+                color=color,
+            )
 
     if mpl_vis:
         plt.axis("equal")
@@ -225,8 +227,11 @@ def render_rectangular_crosswalk_bev(img: np.ndarray, edge1: np.ndarray, edge2: 
 
         color = "y"
         quad = np.vstack([v0, v1, v3, v2])
-        plot_polygon_patch(quad, ax, color)
-
+        vector_rendering_utils.plot_polygon_patch_mpl(
+            polygon_pts=quad,
+            ax=ax,
+            color=color,
+        )
         plt.axis("equal")
         plt.show()
 
@@ -392,18 +397,3 @@ def render_rectangular_crosswalk_egoview(
 
     img_bgr = render_crosshatching_egoview(ego_metadata, img_bgr, edge1=np.vstack([v0, v1]), edge2=np.vstack([v2, v3]))
     return img_bgr
-
-
-def plot_polygon_patch(
-    polygon_pts: np.ndarray, ax: plt.Axes, color: Union[Tuple[float, float, float], str] = "y", alpha: float = 0.3
-) -> None:
-    """Plot a lane segment using a PolygonPatch.
-    Args:
-    polygon_pts: Array of shape (N, 2) representing the points of the polygon
-    ax: Matplotlib axes
-    color: Tuple of shape (3,) representing the RGB color or a single character 3-tuple, e.g. 'b'
-    alpha: the opacity of the lane segment
-    """
-    polygon = Polygon(polygon_pts)
-    patch = PolygonPatch(polygon, facecolor=color, edgecolor=color, alpha=alpha, zorder=2)
-    ax.add_patch(patch)

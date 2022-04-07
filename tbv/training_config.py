@@ -19,23 +19,32 @@ import hydra
 from hydra.utils import instantiate
 
 
+VALID_MODEL_NAMES = [
+    "SingleModalityCEResnet",
+    "EarlyFusionCEResnet",
+    "EarlyFusionCEResnetWLabelMap",
+    "LateFusionSiameseCEResnet",
+    "EarlyFusionTwoHeadResnet",
+]
+
+
 @dataclass
 class TrainingConfig:
     """
     TODO: Could use a hierarchy of configs to place rendering config inside the training config, as member. ask Hydra...
 
     Args:
-        workers: number of CPU workers for data-loading during training (using train.py).
-        batch_size: batch size during training.
-
-
-        model:
+        model_name:
             EarlyFusionCEResnetWLabelMap
             LateFusionSiameseCEResnet
             SingleModalityCEResnet
             EarlyFusionTwoHeadResnet
             EarlyFusionCEResnet
-            EarlyFusionCEResnetWLabelMap
+
+        fusion_modalities: modalities to use as model input. Choices include: "sensor", "semantics", "map"
+
+        workers: number of CPU workers for data-loading during training (using train.py).
+        batch_size: batch size during training.
 
         train_h: height of input crop to network, in pixels.
         train_w: width of input crop to network, in pixels.
@@ -43,7 +52,7 @@ class TrainingConfig:
             rotation (the coordinate origin is assumed to be the top-left corner).
         rotate_max:
 
-        lr_annealing_strategy: `reduce_on_plateau` vs. `poly`
+        lr_annealing_strategy: strategy for annearing learning rate, either `reduce_on_plateau` vs. `poly`
         TODO: add reduce_on_plateau_power
     """
 
@@ -96,6 +105,24 @@ class TrainingConfig:
 
     # not used for published experiments, only for metric learning.
     contrastive_tp_dist_thresh: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        """Verify certain fields."""
+        valid_fusion_modalities = set(["sensor", "semantics", "map"])
+        if not set(self.fusion_modalities).issubset(valid_fusion_modalities):
+            raise ValueError(f"Invalid input modalities: {self.fusion_modalities}")
+
+        if len(self.fusion_modalities) == 1:
+            assert self.model_name == "SingleModalityCEResnet"
+
+        if self.model_name == "SingleModalityCEResnet":
+            assert len(self.fusion_modalities) == 1
+
+        assert self.model_name in VALID_MODEL_NAMES
+
+        assert isinstance(self.num_layers, int)
+        assert isinstance(self.workers, int)
+        assert isinstance(self.batch_size, int)
 
 
 def load_training_config(config_name: str) -> TrainingConfig:
