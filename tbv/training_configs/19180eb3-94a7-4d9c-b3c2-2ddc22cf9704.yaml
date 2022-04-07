@@ -1,0 +1,53 @@
+
+TrainingConfig:
+  _target_: tbv.training_config.TrainingConfig
+
+  # model parameters
+  model_name: EarlyFusionCEResnetWLabelMap
+  arch: resnet
+  pretrained: True
+  num_layers: 18
+  model_save_dirpath: "checkpoints"
+  num_fc_layers: 1
+
+  # inputs # modalities_for_random_dropout: ['map','semantics']
+  fusion_modalities: ['sensor', 'map','semantics']
+  independent_semantics_dropout_prob: 0.5
+  independent_map_dropout_prob: 0.5
+  use_multiple_negatives_per_sensor_img: True
+
+  # testing
+  label_data_fpath: ""  # path to where labels are stored (as JSON)
+
+  # resource-specific hyperparameters
+  workers: 64
+  batch_size: 2048
+  batch_size_test: 256
+
+  # data aug
+  train_h: 224
+  train_w: 224
+  resize_h: 234 # 10 pixel shift allowed, to prevent overfitting
+  resize_w: 234
+  blur_input: False
+  rotate_min: 0 # angle – Rotation angle in degrees. Positive values mean counter-clockwise
+  rotate_max: 0 #  rotation (the coordinate origin is assumed to be the top-left corner).
+
+  # optimization
+  optimizer_algo: adam
+  base_lr: 0.001
+  poly_lr_power: 0.9
+  num_epochs: 90
+  resume_iter: 0
+  weight_decay: 0.0001
+  momentum: 0.9
+  loss_type: cross_entropy
+  lr_annealing_strategy: poly
+
+  # TbV taxonomy
+  num_ce_classes: 2
+  num_finegrained_classes: 7
+
+
+
+

@@ -21,11 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
+import av2.utils.io as io_utils
 import cv2
 import imageio
 import numpy as np
-
-import av2.utils.io as io_utils
 from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
 from av2.map.map_api import ArgoverseStaticMap
 from av2.rendering.map import EgoViewMapRenderer
@@ -171,15 +170,6 @@ def execute_egoview_job(dataloader: AV2SensorDataLoader, log_id: str, config: Eg
             ego_center=copy.deepcopy(ego_center),
             change_type="no_change",
         )
-
-
-@dataclass(frozen=True)
-class TbvEgoViewMapRenderer(EgoViewMapRenderer):
-    """ """
-
-    egoview_renderer: EgoViewMapRenderer
-    log_id: str
-    cam_timestamp_ns: int
 
 
 def render_perturbed_egoview(

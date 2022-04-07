@@ -21,21 +21,28 @@ import math
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import argoverse.utils.json_utils as json_utils
+import av2.utils.io as io_utils
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from argoverse.data_loading.simple_track_dataloader import SimpleArgoverseTrackingDataLoader
-from argoverse.map_representation.map_api import ArgoverseMap
-from argoverse.utils.calibration import get_calibration_config
+from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
+from av2.map.map_api import ArgoverseStaticMap
+from av2.rendering.map import EgoViewMapRenderer
 from torch.utils.data import Dataset
+from torch import Tensor
 
 import tbv.evaluation.eval_map_change_detection as eval_map_change_detection
 import tbv.utils.vis_utils as vis_utils
-from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig
+from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig, SensorViewpoint
 from tbv.utils.cv2_img_utils import hstack_imgs
-from tbv.utils.proj_utils import LogEgoviewRenderingMetadata
+
+# Represents info about a single train/val/test example
+# Represents (sensor_img_fpath, map_img_fpath, labelmap_fpath, label_idx, is_match, log_id, timestamp)
+TbvExampleMetadata = Tuple[str, str, str, int, int, str, int]
+
+# Represents (sensor_img, map_img, labelmap, label_idx, is_match, log_id, timestamp)
+TbvExampleData = Tuple[Tensor, Tensor, Tensor, int, int, str, int]
 
 
 CLASSNAME_TO_CLASSIDX: Dict[str, int] = {
@@ -86,19 +93,6 @@ def compute_data_mean_std(data_root: str, modality: str, interp_type: str):
     return mean, std
 
 
-def read_tsv(tsv_fpath: str) -> List[Dict[str, Any]]:
-    """ """
-    assert Path(tsv_fpath).exists()
-
-    rows = []
-    with open(tsv_fpath) as csvfile:
-        reader = csv.DictReader(csvfile, delimiter="\t")
-        for row in reader:
-            rows += [row]
-
-    return rows
-
-
 def get_split_log_ids(split: str) -> List[str]:
     """
 
@@ -111,7 +105,7 @@ def get_split_log_ids(split: str) -> List[str]:
     split_log_ids = []
 
     localized_test_data_fpath = "labeled_data/mcd_test_set_localization_in_space.json"
-    test_data = json_utils.read_json_file(localized_test_data_fpath)
+    test_data = io_utils.read_json_file(localized_test_data_fpath)
     test_log_ids = [entry["log_id"] for entry in test_data]
 
     all_log_ids = [Path(log_dirpath).stem for log_dirpath in glob.glob(f"{args.tbv_dataroot}/logs/*")]
@@ -149,25 +143,28 @@ def get_sensor_img_fpaths(args: Union[BevRenderingConfig, EgoviewRenderingConfig
         sensor_img_fpaths: list of file paths for all sensor images in either the BEV (aggregated from images),
             or in the ego-view (raw images).
     """
-    if args.viewpoint not in ["egoview", "bev"]:
+    if args.viewpoint not in [SensorViewpoint.EGOVIEW, SensorViewpoint.BEV]:
         raise RuntimeError("Unknown viewpoint type" + args.viewpoint)
 
-    if args.viewpoint == "egoview":
+    if args.viewpoint == SensorViewpoint.EGOVIEW:
+        # No new sensor images are rendered in the ego-view, so instead we look at rendered map images,
+        # and find each corresponding camera image.
         sensor_img_fpaths = []
-        rendered_img_fpaths = glob.glob(f"{args.tbv_dataroot}/*/*.jpg")
+        # folder hierarchy resembles:
+        #     {rendered_datasets_dir}/ _depthocclusionreasoningTrue / no_change / *.jpg
+        rendered_img_fpaths = Path(args.rendered_dataset_dir).glob("*/*/*.jpg")
 
         # for every rendered image
-        for i, rendered_img_fpath in enumerate(rendered_img_fpaths):
-
+        for rendered_img_fpath in rendered_img_fpaths:
             log_id, ts, camera_name = get_logid_ts_camera_from_egoview_rendered_path(rendered_img_fpath)
-            rgb_img_fpath = f"{args.tbv_dataroot}/{log_id}/{camera_name}/{camera_name}_{ts}.jpg"
+            rgb_img_fpath = f"{args.tbv_dataroot}/{log_id}/sensors/cameras/{camera_name}/{ts}.jpg"
             sensor_img_fpaths += [rgb_img_fpath]
 
         sensor_img_fpaths = list(set(sensor_img_fpaths))
         sensor_img_fpaths.sort()
         return sensor_img_fpaths
 
-    elif args.viewpoint == "bev":
+    elif args.viewpoint == SensorViewpoint.BEV:
         # should be one level below (the only dataset below)
         rendered_data_root = glob.glob(f"{args.rendered_dataset_dir}/*")[0]
 
@@ -185,24 +182,28 @@ def get_sensor_img_fpaths(args: Union[BevRenderingConfig, EgoviewRenderingConfig
         return sensor_img_fpaths
 
 
-def get_logid_ts_camera_from_egoview_rendered_path(rendered_img_fpath: str) -> Tuple[str, int, str]:
-    """
+def get_logid_ts_camera_from_egoview_rendered_path(rendered_img_fpath: Path) -> Tuple[str, int, str]:
+    """Given a map rendering in the ego-view, parse the log ID, timestamp, and camera name from the file name.
 
     Args:
-        rendered_img_fpath:
+        rendered_img_fpath: file path to a map rendering in the ego-view, e.g.
+            no_change/LOgutcHPKdh7rA0PLSGWhSqGyiShi3WI__Winter_2021_ring_front_center_315973480999927214_vectormap.jpg
 
     Returns:
-        log_id:
-        ts:
-        camera_name:
+        log_id: unique ID of TbV vehicle log.
+        ts: nanosecond integer timestamp.
+        camera_name: name of camera, for which map viewpoint corresponds to.
     """
-    fname_stem = Path(rendered_img_fpath).stem
+    fname_stem = rendered_img_fpath.stem
 
     j = fname_stem.find("_ring")
     log_id = fname_stem[:j]
 
+    if "_315" not in fname_stem:
+        raise RuntimeError("Invalid file name format.")
+
     k = fname_stem[j + 1 :].find("_315")
-    camera_name = fname_stem[j + 1 : j + 1 + k]  # skip the underscore
+    camera_name = fname_stem[j + 1 : j + 1 + k]  # skip the underscore at beginning, and at the end.
 
     m = fname_stem[j + 1 + k + 1 :].find("_")
     ts = int(fname_stem[j + 1 + k + 1 : j + 1 + k + 1 + m])
@@ -211,20 +212,29 @@ def get_logid_ts_camera_from_egoview_rendered_path(rendered_img_fpath: str) -> T
 
 
 def get_logid_ts_camera_from_egoview_sensor_path(img_fpath: str) -> Tuple[str, int, str]:
-    """From image path in log, get metadata"""
-    fname_stem = Path(img_fpath).stem
-    log_id = Path(img_fpath).parent.parent.stem
+    """From image path in log, get metadata
+
+    Args:
+        img_fpath: path to a camera image, present within a raw vehicle log, e.g.
+        '.../WY0cVNmhg7LtAs5Eny78Csltv2tbjdsd__Winter_2021/sensors/cameras/ring_front_center/315970050899927215.jpg'
+
+    Returns:
+        log_id: unique ID of TbV vehicle log.
+        ts: nanosecond integer timestamp.
+        camera_name: name of camera.
+    """
+    log_id = Path(img_fpath).parent.parent.parent.parent.stem
     camera_name = Path(img_fpath).parent.stem
-    ts = fname_stem.replace(f"{camera_name}_", "")
-    return log_id, int(ts), camera_name
+    ts = int(Path(img_fpath).stem)
+    return log_id, ts, camera_name
 
 
 def get_logid_ts_from_bev_sensor_path(sensor_img_fpath: str, modality: str) -> Tuple[str, int]:
-    """Derive log identifier and nanosecond timestamp from file path.
+    """Derive log identifier and nanosecond timestamp from file path to an image, representing sensor data in the BEV.
 
     Args:
-        sensor_img_fpath
-        modality
+        sensor_img_fpath:
+        modality:
 
     Returns:
         log_id: unique identifier for TbV log/scenario.
@@ -244,8 +254,8 @@ def get_logid_ts_from_bev_sensor_path(sensor_img_fpath: str, modality: str) -> T
 
 def make_trainval_CE_dataset(
     split: str, args: Union[BevRenderingConfig, EgoviewRenderingConfig]
-) -> List[Tuple[str, str, int]]:
-    """
+) -> List[TbvExampleMetadata]:
+    """Gather metadata for examples from train or val split, to be trained with cross-entropy supervision.
 
     Args:
         split: dataset split.
@@ -256,7 +266,9 @@ def make_trainval_CE_dataset(
     """
     rendered_data_root = glob.glob(f"{args.rendered_dataset_dir}/*")[0]
 
-    assert args.viewpoint in ["egoview", "bev"]
+    if args.viewpoint not in [SensorViewpoint.EGOVIEW, SensorViewpoint.BEV]:
+        raise ValueError(f"Unknown sensor viewpoint: {args.viewpoint}")
+
     sensor_img_fpaths = get_sensor_img_fpaths(args)
     logging.info(f"Found {len(sensor_img_fpaths)} unique sensor images")
 
@@ -268,12 +280,12 @@ def make_trainval_CE_dataset(
 
     for sensor_img_fpath in sensor_img_fpaths:
 
-        if args.viewpoint == "egoview":
+        if args.viewpoint == SensorViewpoint.EGOVIEW:
             log_id, ts, camera_name = get_logid_ts_camera_from_egoview_sensor_path(sensor_img_fpath)
             labelmap_fpath = sensor_img_fpath.replace(f"/{camera_name}/", f"/seamseg_label_maps_{camera_name}/")
             labelmap_fpath = labelmap_fpath.replace(".jpg", ".png")
 
-        elif args.viewpoint == "bev":
+        elif args.viewpoint == SensorViewpoint.BEV:
             log_id, ts = get_logid_ts_from_bev_sensor_path(sensor_img_fpath, args.sensor_modality)
 
             labelmap_fname = Path(sensor_img_fpath).stem + ".png"
@@ -286,9 +298,9 @@ def make_trainval_CE_dataset(
 
         log_ids_on_disk.add(log_id)
 
-        if args.viewpoint == "egoview":
+        if args.viewpoint == SensorViewpoint.EGOVIEW:
             img_fname = f"{log_id}_{camera_name}_{ts}_vectormap.jpg"
-        elif args.viewpoint == "bev":
+        elif args.viewpoint == SensorViewpoint.BEV:
             img_fname = f"{log_id}_{ts}_vectormap.jpg"
 
         if log_id not in split_log_ids:
@@ -345,8 +357,10 @@ def make_test_CE_dataset(
     args: Union[BevRenderingConfig, EgoviewRenderingConfig],
     filter_eval_by_visibility: bool,
     eval_categories: List[str],
-) -> List[Tuple[str, str, str, int, int, str, int]]:
-    """
+    save_visualizations: bool = True,
+) -> List[TbvExampleMetadata]:
+    """Gather metadata for examples from the test split.
+
     Args:
         split:
         args: config for dataset setup.
@@ -354,11 +368,15 @@ def make_test_CE_dataset(
            or to evaluate on *all* nearby portions of the scene.
            (only useful for the "test" split.)
         eval_categories: categories to consider when selecting frames to evaluate on.
+        save visualizations: whether to save side-by-side visualizations of data examples,
+            i.e. an image with horizontally stacked (sensor image, map image, blended combination).
 
     Returns:
         data_list: list of 7-tuples, each representing
             (sensor_img_fpath, map_img_fpath, labelmap_fpath, label_idx, is_match, log_id, timestamp)
     """
+    # get subdir, e.g. rendered_egoview_2022_03_29 ->
+    #                  rendered_egoview_2022_03_29/_depthocclusionreasoningTrue
     rendered_data_root = glob.glob(f"{args.rendered_dataset_dir}/*")[0]
 
     data_list = []
@@ -368,25 +386,19 @@ def make_test_CE_dataset(
 
     # first, get a list of sensor file paths for each log
     for sensor_img_fpath in sensor_img_fpaths:
-        if args.viewpoint == "bev":
+
+        if args.viewpoint == SensorViewpoint.BEV:
             log_id, ts = get_logid_ts_from_bev_sensor_path(sensor_img_fpath, args.sensor_modality)
-        elif args.viewpoint == "egoview":
+        elif args.viewpoint == SensorViewpoint.EGOVIEW:
             log_id, ts, camera_name = get_logid_ts_camera_from_egoview_sensor_path(sensor_img_fpath)
 
         logid_to_sensorfpath_dict[log_id] += [sensor_img_fpath]
 
     # get proximity-based change event information
-    logid_to_mc_events_dict = eval_map_change_detection.get_test_set_event_info_bev(rendered_data_root)
+    logid_to_mc_events_dict = eval_map_change_detection.get_test_set_event_info_bev(data_root=Path(args.tbv_dataroot))
 
-    # load the poses for each timestamp
-    log_pose_fpath = "test_set_log_poses/all_log_poses_timestamps_mcd_extraction_output_dir_q85_v12_2020_08_15_02_02_50_s3fs_v3_may1.json"  # noqa
-
-    # form N x 3 array, with columns (nanosec timestamp, AV city_x, AV city_y)
-    log_pose_data = json_utils.read_json_file(log_pose_fpath)
-    log_pose_data = {k: np.array(v) for k, v in log_pose_data.items()}
-
-    if args.viewpoint == "egoview":
-        dl = SimpleArgoverseTrackingDataLoader(data_dir=args.tbv_dataroot, labels_dir=args.tbv_dataroot)
+    # we always need the data loader, in order to fetch log poses.
+    loader = AV2SensorDataLoader(data_dir=Path(args.tbv_dataroot), labels_dir=Path(args.tbv_dataroot))
 
     log_missing_labelmaps_dict = defaultdict(list)
     log_missing_mapimgs_dict = defaultdict(list)
@@ -398,45 +410,21 @@ def make_test_CE_dataset(
     for log_idx, log_id in enumerate(logid_to_mc_events_dict.keys()):
         sensor_img_fpaths = logid_to_sensorfpath_dict[log_id]
 
-        if log_id not in [
-            "Vl2ysYPm98IAgHNdKbG7U9Qqs9zT9ldH__2020-06-10-Z1F0021",
-            "gsYZ0RMDMFZdRo1vmdW2Hp0Pn6hnKoIw__2020-11-03-Z1F0020",
-            "hAsGqwlkaBv1zyxXl2tE7uqg4epa36ir__2021-01-05-Z1F0067",
-            "wlKPrkqwEx8fFYTiR50fX7UlDzoKkcbq__2020-12-11-Z1F0087",
-            "CTZa7zmqmUNsO0ZHYmHoP1EUSu1oT1Qh__2020-12-22-Z1F0073",
-            "DkKIcjB4Wdz1PyMbYoHKEMFcf19GOe5a__2021-01-11-Z1F0065",
-            "vl4yhINZQEOkrsk1ZUY5WoIVChVtHszP__2021-02-08-Z1F0021",
-            "vl4yhINZQEOkrsk1ZUY5WoIVChVtHszP__2020-11-19-Z1F0062",
-            "Q1KdcvPbyQ7gAFmXUxYzpSfgdfHQWqkv__2020-11-12-Z1F0035",
-            "Q1KdcvPbyQ7gAFmXUxYzpSfgdfHQWqkv__2020-09-16-Z1F0088",
-            "zFb6NmwKZQ8zWRP2G0WM75YqUVTrhZ7p__2020-07-24-Z1F0077",
-            "yqNHd1H76GMchv6m66GzyYnPRNCpCDcT__2020-10-29-Z1F0062",
-            "dHBfUHhMHrOhzA09aRcdwdglbgghk7C1__2020-11-04-Z1F0081",
-            "fnX5fTajNRYrkvTe3kgPEcqGND6xoJ83__2020-08-07-Z1F0093",
-            "frjAlDSdK6bb0CEeSsaBLgnPKvkaWegm__2020-09-16-Z1F0016",
-            "DOM7SXgdXj6ZLWlRZdc9Y4PH4QgbToAq__2020-09-14-Z1F0035",
-            "Kgobyet2FXesqYI3wCkli0ft7Q7t0Plt__2020-06-09-Z1F0021",
-        ]:
-            continue
-
         if len(sensor_img_fpaths) == 0:
             print(f"========>> No images found for {log_id}! =======>>")
             continue
 
         # now, classify each frame individually
-        if args.viewpoint == "egoview" and args.filter_eval_by_visibility:
+        if args.viewpoint == SensorViewpoint.EGOVIEW and filter_eval_by_visibility:
             # map is only needed for egoview projection
-            log_city_info_path = f"{args.tbv_dataroot}/{log_id}/city_info.json"
-            city_info = json_utils.read_json_file(log_city_info_path)
-            city_id = city_info["city_id"]
-            city_name = city_info["city_name"]
-            log_avm = ArgoverseMap(city_id, args.maps_storage_dir, city_name)
+            log_map_dirpath = loader.get_log_map_dirpath(log_id=log_id)
+            log_avm = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=True)
 
         for idx, sensor_img_fpath in enumerate(sensor_img_fpaths):
 
             if idx % 1000 == 0:
-                print(f"Log {log_idx}: Image {idx}/{len(sensor_img_fpaths)}")
-            if args.viewpoint == "bev":
+                print(f"Log {log_idx}: Image {idx}/{len(sensor_img_fpaths)} of {log_id}")
+            if args.viewpoint == SensorViewpoint.BEV:
                 found_log_id, ts = get_logid_ts_from_bev_sensor_path(sensor_img_fpath, args.sensor_modality)
                 assert found_log_id == log_id
 
@@ -446,11 +434,11 @@ def make_test_CE_dataset(
 
                 labelmap_fpath = f"{Path(sensor_img_fpath).parent}/semantics/{labelmap_fname}"
                 if not Path(labelmap_fpath).exists():
-                    print(f"\t{idx} -> {log_id}: {labelmap_fpath} missing on disk")
+                    print(f"\t{idx} -> {log_id}: {labelmap_fpath} semantic label map missing on disk")
                     log_missing_labelmaps_dict[log_id] += [labelmap_fpath]
                     continue
 
-            elif args.viewpoint == "egoview":
+            elif args.viewpoint == SensorViewpoint.EGOVIEW:
                 found_log_id, ts, camera_name = get_logid_ts_camera_from_egoview_sensor_path(sensor_img_fpath)
                 assert found_log_id == log_id
 
@@ -462,33 +450,19 @@ def make_test_CE_dataset(
 
             sensor_log_ids.add(log_id)
 
-            if args.viewpoint == "egoview":
+            if args.viewpoint == SensorViewpoint.EGOVIEW:
                 img_fname = f"{log_id}_{camera_name}_{ts}_vectormap"
 
-            elif args.viewpoint == "bev":
+            elif args.viewpoint == SensorViewpoint.BEV:
                 img_fname = f"{log_id}_{ts}_vectormap"
 
-            if args.viewpoint == "egoview" and args.filter_eval_by_visibility:
+            # load the egovehicle's pose at this particular timestamp.
+            # The distance from egovehicle to map entity will be computed.
+            city_SE3_egovehicle = loader.get_city_SE3_ego(log_id=log_id, timestamp_ns=ts)
 
+            if args.viewpoint == SensorViewpoint.EGOVIEW and filter_eval_by_visibility:
                 cam_timestamp = ts
-                log_calib_data = dl.get_log_calibration_data(log_id)
-                camera_config = get_calibration_config(log_calib_data, camera_name)
-                city_SE3_egovehicle = dl.get_city_SE3_egovehicle(log_id, cam_timestamp)
-                egovehicle_SE3_city = city_SE3_egovehicle.inverse()
-                depth_map = None  # dummy, not needed here
-
-                # get relevant info for projection
-                ego_metadata = LogEgoviewRenderingMetadata(
-                    depth_map,
-                    egovehicle_SE3_city,
-                    city_SE3_egovehicle,
-                    log_calib_data,
-                    camera_name,
-                    camera_config,
-                    avm=log_avm,
-                )
-            else:
-                ego_metadata = None
+                pinhole_camera = loader.get_log_pinhole_camera(log_id=log_id, cam_name=camera_name)
 
             map_img_fpath = f"{rendered_data_root}/no_change/{img_fname}.jpg"
             if not Path(map_img_fpath).exists():
@@ -496,18 +470,25 @@ def make_test_CE_dataset(
                 log_missing_mapimgs_dict[log_id] += [map_img_fpath]
                 continue
 
-            ts_idx = np.where(log_pose_data[log_id][:, 0] == ts)[0]
-            if ts_idx.size == 0:
-                continue
-            # columns 1 and 2 represent (x,y) coords
-            av_city_coords = log_pose_data[log_id][ts_idx, 1:].squeeze()
             mc_events = logid_to_mc_events_dict[log_id]
 
-            if (args.viewpoint == "bev") or (args.viewpoint == "egoview" and not args.filter_eval_by_visibility):
-                in_range_vals = [mc_event.check_if_in_range(log_id, av_city_coords, 20.0) for mc_event in mc_events]
-            elif args.viewpoint == "egoview" and args.filter_eval_by_visibility:
+            if (args.viewpoint == SensorViewpoint.BEV) or (
+                args.viewpoint == SensorViewpoint.EGOVIEW and not filter_eval_by_visibility
+            ):
                 in_range_vals = [
-                    mc_event.check_if_in_range_egoview(log_id, av_city_coords, 20.0, ego_metadata)
+                    mc_event.check_if_in_range(
+                        log_id=log_id, city_SE3_egovehicle=city_SE3_egovehicle, range_thresh_m=20.0
+                    )
+                    for mc_event in mc_events
+                ]
+            elif args.viewpoint == SensorViewpoint.EGOVIEW and filter_eval_by_visibility:
+                in_range_vals = [
+                    mc_event.check_if_in_range_egoview(
+                        log_id=log_id,
+                        city_SE3_egovehicle=city_SE3_egovehicle,
+                        range_thresh_m=20.0,
+                        pinhole_cam=pinhole_camera,
+                    )
                     for mc_event in mc_events
                 ]
             else:
@@ -542,27 +523,15 @@ def make_test_CE_dataset(
             if len(data_list) % 1000 == 0:
                 print(f"Data list has {len(data_list)} {split} 2-tuple examples...")
 
-            # skip for now
-            render_triplets = True
-            if render_triplets:
-
-                # teaser_log_id_prefixes = [
-                # '0WH','1SK','8pOt','9hOC','9U3','aEEU','chLb','DakH','exmm','Jp6J','MiL','mx4S','pm7w','uAWy'
-                # ]
-                # if not any([prefix in log_id for prefix in teaser_log_id_prefixes]):
-                #   continue
-
-                # if 'MiL' not in log_id or '9927215' not in sensor_img_fpath:
-                #   continue
-
+            if save_visualizations:
                 vis_utils.save_egoview_sensor_map_semantics_triplet(
                     is_match,
                     img_fname,
                     sensor_img_fpath,
                     map_img_fpath,
                     labelmap_fpath,
-                    save_dir="triplets_2021_05_10_egoview_teaser_figure",
-                    render_text=False,
+                    save_dir=Path("./triplets_2022_04_03_egoview_teaser_figure_downsampled"),
+                    render_text=True,
                 )
 
     print(f"Missing Labelmap Stats for {args.viewpoint}:")
@@ -631,7 +600,12 @@ def make_trainval_triplet_dataset(
 
 
 def make_dataset(
-    split: str, args, form_triplets: bool, filter_eval_by_visibility: bool, eval_categories: Optional[List[str]] = None
+    split: str,
+    args: Union[BevRenderingConfig, EgoviewRenderingConfig],
+    form_triplets: bool,
+    filter_eval_by_visibility: bool,
+    eval_categories: Optional[List[str]] = None,
+    save_visualizations: bool = False,
 ) -> List[Tuple[str, str, int]]:
     """
     train is all else for now
@@ -641,11 +615,13 @@ def make_dataset(
     Args:
         split: dataset split.
         args: config for dataset setup.
-        form_triplets
+        form_triplets:
         filter_eval_by_visibility: whether to evaluate only on visible nearby portions of the scene,
            or to evaluate on *all* nearby portions of the scene.
            (only useful for the "test" split.)
         eval_categories: categories to consider when selecting frames to evaluate on.
+        save visualizations: whether to save side-by-side visualizations of data examples,
+            i.e. an image with horizontally stacked (sensor image, map image, blended combination).
     """
     print(f"Creating data list for {split} ...")
 
@@ -654,7 +630,11 @@ def make_dataset(
 
     elif split in ["test"] and form_triplets == False:
         data_list = make_test_CE_dataset(
-            split, args, filter_eval_by_visibility=filter_eval_by_visibility, eval_categories=eval_categories
+            split,
+            args,
+            filter_eval_by_visibility=filter_eval_by_visibility,
+            eval_categories=eval_categories,
+            save_visualizations=save_visualizations,
         )
 
     elif split in ["train", "val"] and form_triplets == True:
@@ -704,6 +684,8 @@ def save_triplet_img_figure(a_path: str, p_path: str, n_path: str, log_id_ts: st
 
 
 class McdData(Dataset):
+    """Map change detection data, for training or inference."""
+
     def __init__(
         self,
         split: str,
@@ -712,6 +694,7 @@ class McdData(Dataset):
         filter_eval_by_visibility: bool,
         eval_categories: Optional[List[str]] = None,
         loss_type: str = "cross_entropy",
+        save_visualizations: bool = False,
     ) -> None:
         """
         Suitable for CE or contrastive loss.
@@ -727,28 +710,33 @@ class McdData(Dataset):
             split: dataset split.
             transform: transformations to apply to the input, either to normalize/crop,
                 or to also apply data augmentation.
-            args: config for dataset setup.
+            args: config for rendered dataset.
             filter_eval_by_visibility: whether to evaluate only on visible nearby portions of the scene,
                or to evaluate on *all* nearby portions of the scene.
                (only useful for the "test" split.)
             eval_categories: categories to consider when selecting frames to evaluate on.
             loss_type: "cross_entropy", "contrastive", or "triplet". In the paper, we use "cross_entropy" everywhere.
+            save visualizations: whether to save side-by-side visualizations of data examples,
+                i.e. an image with horizontally stacked (sensor image, map image, blended combination).
         """
-        assert split in ["train", "val", "test"]
+        if split not in ["train", "val", "test"]:
+            raise ValueError(f"Unknown split: {split}")
+
         self.split = split
         self.transform = transform
 
         self.use_triplets = True if loss_type == "triplet" else False
         self.data_list = make_dataset(
             split,
-            args,
+            args=args,
             form_triplets=self.use_triplets,
             filter_eval_by_visibility=filter_eval_by_visibility,
             eval_categories=eval_categories,
+            save_visualizations=save_visualizations,
         )
 
     def __len__(self):
-        """ """
+        """Return the number examples in the dataset split."""
         return len(self.data_list)
 
     def __getitem__(self, index: int):
@@ -758,18 +746,20 @@ class McdData(Dataset):
         else:
             return self.twotuple_get_item(index)
 
-    def twotuple_get_item(self, index: int):
+    def twotuple_get_item(self, index: int) -> TbvExampleData:
         """Obtain 2-tuples for CE or Contrastive Losses"""
         sensor_img_fpath, map_img_fpath, labelmap_fpath, label_idx, is_match, log_id, timestamp = self.data_list[index]
 
         sensor_img = imageio.imread(sensor_img_fpath)
         map_img = imageio.imread(map_img_fpath)
 
-        if labelmap_fpath is None or not Path(labelmap_fpath).exists():
-            labelmap = copy.deepcopy(map_img)[:, :, 0]  # dummy data in case no label map
-            raise RuntimeError
-        else:
-            labelmap = imageio.imread(labelmap_fpath)
+        # if labelmap_fpath is None or not Path(labelmap_fpath).exists():
+        #     raise RuntimeError("Semantic label map requested as input, but not found on disk.")
+        # else:
+        #     labelmap = imageio.imread(labelmap_fpath)
+        # else:
+        #     # semantic label map will NOT be employed downstream, so return dummy data.
+        labelmap = copy.deepcopy(map_img)[:, :, 0]
 
         # hstack_img = hstack_imgs([sensor_img, map_img])
         # imageio.imwrite(f'sanity_check/{index}.jpg', hstack_img)

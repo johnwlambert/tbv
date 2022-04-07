@@ -1,0 +1,22 @@
+
+EgoviewRenderingConfig:
+
+    _target_: tbv.rendering_config.EgoviewRenderingConfig
+    # could differentiate between CPU and GPU processes
+    num_processes: 4
+
+    # Hyperparameters
+    render_vector_map_only: False
+    render_reflectance: False
+    recompute_segmentation: False
+
+    range_m: 20 # 20 m in all directions
+
+    tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset
+    rendered_dataset_dir: /Users/johnlambert/Downloads/tbv_dataset/rendered_egoview_2022_03_29
+
+    render_test_set_only: True
+    jitter_vector_map: True
+    max_dist_to_del_crosswalk: 15 # meters, augmentation will abort if not found in range
+    use_depth_map_for_occlusion: True
+

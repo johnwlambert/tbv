@@ -14,12 +14,10 @@ Originating Authors: John Lambert
 
 from typing import List, Tuple
 
-import argoverse.utils.calibration as calib_utils
 import matplotlib.pyplot as plt
 import numpy as np
 from av2.map.map_api import ArgoverseStaticMap
 from av2.geometry.se3 import SE3
-from argoverse.utils.cv2_plotting_utils import draw_polygon_cv2
 
 import tbv.utils.frustum_utils as frustum_utils
 
@@ -125,32 +123,6 @@ def get_flat_plane_grid_triangles(range_m: float = 30) -> TRIANGLES_TYPE:
     return nearby_triangles
 
 
-def test_get_flat_plane_grid_triangles() -> None:
-    """ """
-    nearby_triangles = get_flat_plane_grid_triangles(range_m=1)
-    assert len(nearby_triangles) == 8
-
-    for range_m in range(30):
-        tris = get_flat_plane_grid_triangles(range_m)
-        print(f"{len(tris)} at range={range_m}")
-
-
-def plane_point_side_v3(p, v):
-    """Get sign of point to plane distance.
-    This function does not compute the actual distance.
-    Positive denotes that point v is on the same side of the plane as the plane's normal vector.
-    Negative if it is on the opposite side.
-
-    Args:
-        p: Array of shape (3,) representing a plane in Hessian Normal Form, ax + by + c = 0
-        v: A vector/2D point
-
-    Returns:
-        sign: A float-like value representing sign of signed distance
-    """
-    return p[:2].dot(v) + p[2]
-
-
 def get_2d_rotmat_from_theta(theta: float) -> np.ndarray:
     """
     Args:
@@ -220,12 +192,3 @@ def prune_triangles_to_2d_frustum(
 
     frustum_triangles = [triangles[i] for i in range(num_triangles) if inside_frustum[i]]
     return frustum_triangles, inside_frustum
-
-
-if __name__ == "__main__":
-    """ """
-    # test_prune_triangles_zero_yaw()
-    # test_prune_triangles_back_frustum()
-    # test_get_frustum_side_normals()
-
-    test_form_polygon_triangulation_2d()

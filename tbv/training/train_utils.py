@@ -24,6 +24,7 @@ import sklearn.metrics
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
 
 # from mseg_semantic.utils.training_utils import poly_learning_rate
 
@@ -37,7 +38,9 @@ from tbv.rendering_config import RenderingConfig
 from tbv.utils import tbv_transform
 from tbv.utils.tbv_transform import unnormalize_img
 from tbv.training.mcd_dataset import McdData
+from tbv.rendering_config import SensorViewpoint
 from tbv.training_config import TrainingConfig
+
 
 logger = logger_utils.get_logger()
 
@@ -46,14 +49,14 @@ def cross_entropy_forward(
     model: nn.Module,
     args: TrainingConfig,
     split: str,
-    x: torch.Tensor,
-    xstar: torch.Tensor,
-    labelmap: torch.Tensor,
-    y: torch.Tensor,
+    x: Tensor,
+    xstar: Tensor,
+    labelmap: Tensor,
+    y: Tensor,
     log_ids: Optional[List[str]] = None,
-    timestamps: Optional[torch.Tensor] = None,
+    timestamps: Optional[Tensor] = None,
     run_gradcam: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[Tensor, Tensor]:
     """Run inputs through model for a cross-entropy-loss based training paradigm.
 
     Args:
@@ -171,10 +174,10 @@ def view_gradcam_results(
     timestamps: np.ndarray,
     args,
     model,
-    x: torch.Tensor,
-    xstar: torch.Tensor,
-    labelmap: torch.Tensor,
-    probs: torch.Tensor,
+    x: Tensor,
+    xstar: Tensor,
+    labelmap: Tensor,
+    probs: Tensor,
 ) -> None:
     """Save image grids showing inputs and corresponding GradCAM activations.
 
@@ -235,8 +238,8 @@ def view_gradcam_results(
 
 
 def cross_entropy_forward_two_head(
-    model: nn.Module, args, split: str, x: torch.Tensor, xstar: torch.Tensor, y: torch.Tensor, gt_is_match: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    model: nn.Module, args, split: str, x: Tensor, xstar: Tensor, y: Tensor, gt_is_match: Tensor
+) -> Tuple[Tensor, Tensor, Tensor]:
     """
     Args:
         model:
@@ -278,8 +281,8 @@ def cross_entropy_forward_two_head(
 
 
 def per_class_sigmoid_loss(
-    class_logits: torch.Tensor,
-    y_gt: torch.Tensor,
+    class_logits: Tensor,
+    y_gt: Tensor,
 ):
     """SigmoidLoss
 
@@ -298,17 +301,17 @@ def per_class_sigmoid_loss(
     return F.binary_cross_entropy_with_logits(class_logits, y_onehot, reduction="mean")
 
 
-def sigmoid(x: torch.Tensor):
+def sigmoid(x: Tensor):
     """ """
     return 1 / (1 + torch.exp(-x))
 
 
-def bce(prob: torch.Tensor, y: torch.Tensor):
+def bce(prob: Tensor, y: Tensor):
     """prob and y should be of same shape"""
     return -(y * torch.log(prob) + (1 - y) * torch.log(1 - prob))
 
 
-def bce_w_logits(x: torch.Tensor, y: torch.Tensor):
+def bce_w_logits(x: Tensor, y: Tensor):
     """ """
     N, C = x.shape
     probs = sigmoid(x)
@@ -316,7 +319,7 @@ def bce_w_logits(x: torch.Tensor, y: torch.Tensor):
     return loss.sum() / (N * C)
 
 
-def bce_w_logits_pytorch(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+def bce_w_logits_pytorch(x: Tensor, y: Tensor) -> Tensor:
     """Sigmoid layer and the BCELoss"""
     m = nn.Sigmoid()
     loss_fn = nn.BCELoss()
@@ -407,7 +410,7 @@ def get_train_transform_list(args: TrainingConfig, viewpoint: str) -> List[Calla
     mean, std = get_imagenet_mean_std()
 
     transform_list = []
-    if args.viewpoint == "egoview":
+    if args.viewpoint == SensorViewpoint.EGOVIEW:
         transform_list.extend([tbv_transform.ResizeLabelMapTriplet(), tbv_transform.CropBottomSquareTriplet()])
         if args.blur_input:
             transform_list.extend([tbv_transform.RandomGaussianBlurTriplet()])
@@ -419,14 +422,14 @@ def get_train_transform_list(args: TrainingConfig, viewpoint: str) -> List[Calla
                 tbv_transform.CropTriplet(
                     [args.train_h, args.train_w], crop_type="rand", padding=mean, grayscale_labelmap=True
                 ),
-                tbv_transform.ToTensorTriplet(grayscale_labelmap=args.viewpoint == "egoview"),
+                tbv_transform.ToTensorTriplet(grayscale_labelmap=args.viewpoint == SensorViewpoint.EGOVIEW),
                 tbv_transform.BinarizeLabelMapTriplet(),
-                tbv_transform.NormalizeTriplet(normalize_labelmap=args.viewpoint == "bev", mean=mean, std=std),
+                tbv_transform.NormalizeTriplet(normalize_labelmap=args.viewpoint == SensorViewpoint.BEV, mean=mean, std=std),
             ]
         )
         # cannot rotate much unless we place a L2-norm constraint, instead of infty-norm
 
-    elif args.viewpoint == "bev":
+    elif args.viewpoint == SensorViewpoint.BEV:
 
         if args.blur_input:
             transform_list.extend([tbv_transform.RandomGaussianBlurTriplet()])
@@ -441,8 +444,8 @@ def get_train_transform_list(args: TrainingConfig, viewpoint: str) -> List[Calla
                 tbv_transform.CropTriplet(
                     [args.train_h, args.train_w], crop_type="rand", padding=mean, grayscale_labelmap=False
                 ),  # bev has rgb labelmap
-                tbv_transform.ToTensorTriplet(grayscale_labelmap=viewpoint == "egoview"),
-                tbv_transform.NormalizeTriplet(normalize_labelmap=viewpoint == "bev", mean=mean, std=std),
+                tbv_transform.ToTensorTriplet(grayscale_labelmap=viewpoint == SensorViewpoint.EGOVIEW),
+                tbv_transform.NormalizeTriplet(normalize_labelmap=viewpoint == SensorViewpoint.BEV, mean=mean, std=std),
             ]
         )
 
@@ -473,14 +476,14 @@ def get_val_test_transform_list(args: TrainingConfig, viewpoint: str) -> List[Ca
             [args.train_h, args.train_w],
             crop_type="center",
             padding=mean,
-            grayscale_labelmap=viewpoint == "egoview",
+            grayscale_labelmap=viewpoint == SensorViewpoint.EGOVIEW,
         ),
-        tbv_transform.ToTensorTriplet(grayscale_labelmap=viewpoint == "egoview"),
+        tbv_transform.ToTensorTriplet(grayscale_labelmap=viewpoint == SensorViewpoint.EGOVIEW),
     ]
-    if viewpoint == "egoview":
+    if viewpoint == SensorViewpoint.EGOVIEW:
         transform_list.extend([tbv_transform.BinarizeLabelMapTriplet()])
 
-    transform_list.extend([tbv_transform.NormalizeTriplet(normalize_labelmap=viewpoint == "bev", mean=mean, std=std)])
+    transform_list.extend([tbv_transform.NormalizeTriplet(normalize_labelmap=viewpoint == SensorViewpoint.BEV, mean=mean, std=std)])
     return transform_list
 
 
@@ -497,7 +500,7 @@ def get_img_transform_list(args: TrainingConfig, split: str, viewpoint: str) -> 
     Return:
         List of transforms
     """
-    if viewpoint not in ["egoview", "bev"]:
+    if viewpoint not in [SensorViewpoint.EGOVIEW, SensorViewpoint.BEV]:
         raise RuntimeError("Unknown viewpoint")
 
     if split not in ["train", "val", "test"]:
@@ -543,6 +546,7 @@ def get_dataloader(
     split: str,
     eval_categories: Optional[List[str]] = None,
     filter_eval_by_visibility: bool = False,
+    save_visualizations: bool = False,
 ) -> torch.utils.data.DataLoader:
     """
 
@@ -554,6 +558,8 @@ def get_dataloader(
         filter_eval_by_visibility: whether to evaluate only on visible nearby portions of the scene,
            or to evaluate on *all* nearby portions of the scene.
            (only useful for the "test" split.)
+        save visualizations: whether to save side-by-side visualizations of data examples,
+            i.e. an image with horizontally stacked (sensor image, map image, blended combination).
 
     Returns:
         split_loader: data loader for the specified dataset split.
@@ -577,6 +583,7 @@ def get_dataloader(
         filter_eval_by_visibility=filter_eval_by_visibility,
         eval_categories=eval_categories,
         loss_type=training_args.loss_type,
+        save_visualizations=save_visualizations
     )
 
     drop_last = True if split == "train" else False
@@ -634,7 +641,10 @@ def get_model(args: TrainingConfig, viewpoint: str) -> nn.Module:
         raise RuntimeError("Unknown loss type")
 
     logger.info(model)
-    model = model.cuda()
+    if torch.cuda.is_available():
+        model = model.cuda()
+    else:
+        logger.info("CUDA unavailable; inference will be slow.")
 
     model = torch.nn.DataParallel(model)
 
@@ -680,7 +690,7 @@ class BinaryClassificationAverageMeter:
         self.prec_meter = AverageMeter()
         self.f1_meter = AverageMeter()
 
-    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+    def update(self, pred: Tensor, target: Tensor) -> None:
         """Update the running mean for each metric."""
         target = target.cpu().numpy()
         pred = pred.cpu().numpy()
@@ -735,7 +745,7 @@ def test_classification_average_meter() -> None:
 
 
 def compute_mean_accuracy(
-    probs: torch.Tensor, y_true: torch.Tensor, n_class: int, verbose: bool
+    probs: Tensor, y_true: Tensor, n_class: int, verbose: bool
 ) -> Tuple[float, np.ndarray]:
     """over all classes
 

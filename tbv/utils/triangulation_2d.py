@@ -23,7 +23,6 @@ import mapbox_earcut as earcut
 import matplotlib.pyplot as plt
 import numpy as np
 import trimesh
-from argoverse.utils.manhattan_search import compute_point_cloud_bbox
 
 from shapely.geometry import Polygon
 
@@ -53,7 +52,8 @@ def form_polygon_triangulation_2d_brute_force(
         |  \\ |
         v0 - v1
     """
-    min_x, min_y, max_x, max_y = compute_point_cloud_bbox(polygon_pts)
+    min_x, min_y = np.amin(polygon_pts, axis=0)
+    max_x, max_y = np.amax(polygon_pts, axis=0)
 
     nx = max_x - min_x
     ny = max_y - min_y
