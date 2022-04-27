@@ -26,8 +26,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-# from mseg_semantic.utils.training_utils import poly_learning_rate
-
 import tbv.utils.captum_utils as captum_utils
 import tbv.utils.logger_utils as logger_utils
 from tbv.models.early_fusion import EarlyFusionCEResnet, EarlyFusionCEResnetWLabelMap, EarlyFusionTwoHeadResnet
@@ -60,23 +58,23 @@ def cross_entropy_forward(
     """Run inputs through model for a cross-entropy-loss based training paradigm.
 
     Args:
-        model:
-        args:
+        model: Pytorch model.
+        args: training config.
         split:
-        x: tensor of shape ()
-        xstar: tensor of shape ()
-        labelmap: tensor of shape ()
-        y: tensor of shape ()
-        log_ids:
-        timestamps:
+        x: tensor of shape (N,H,W,3) representing sensor data for each of N examples.
+        xstar: tensor of shape (N,H,W,3) representing rendered maps for each of N examples.
+        labelmap: tensor of shape (N,H,W) representing a semantic segmentation label map for each of N examples.
+        y: tensor of shape (N,) representing a
+        log_ids: corresponding vehicle log ID per example.
+        timestamps: corresponding nanosecond timestamp per example.
         run_gradcam:
 
     Returns:
-        probs
+        probs: tensor of shape (N,C) representing 
         loss
     """
     if args.model_name in ["SingleModalityCEResnet", "SingleModalityLabelmapCEResnet"]:
-        # feed in map data only, not the sensor data
+        # feed in map data only or label map data only, not the sensor data.
 
         if args.fusion_modalities == ["map"]:
             input = xstar
@@ -119,6 +117,9 @@ def cross_entropy_forward(
             input1 = x
             input2 = xstar
 
+        else:
+            raise RuntimeError("Invalid fusion modalities provided via config.")
+
         if split == "train":
             logits = model(input1, input2)
             probs = torch.nn.functional.softmax(logits.clone(), dim=1)
@@ -132,13 +133,13 @@ def cross_entropy_forward(
 
             if run_gradcam:
                 view_gradcam_results(
-                    log_ids,
-                    timestamps.numpy(),
-                    args,
-                    model,
-                    x.detach().clone(),
-                    xstar.detach().clone(),
-                    labelmap.detach().clone(),
+                    log_ids=log_ids,
+                    timestamps=timestamps.numpy(),
+                    args=args,
+                    model=model,
+                    x=x.detach().clone(),
+                    xstar=xstar.detach().clone(),
+                    labelmap=labelmap.detach().clone(),
                     probs=probs.detach().clone(),
                 )
 
@@ -172,8 +173,8 @@ def cross_entropy_forward(
 def view_gradcam_results(
     log_ids: List[str],
     timestamps: np.ndarray,
-    args,
-    model,
+    args: TrainingConfig,
+    model: nn.Module,
     x: Tensor,
     xstar: Tensor,
     labelmap: Tensor,
@@ -182,13 +183,13 @@ def view_gradcam_results(
     """Save image grids showing inputs and corresponding GradCAM activations.
 
     Args:
-        log_ids:
-        timestamps:
-        args
-        model:
-        x: tensor of shape ()
-        xstar: tensor of shape ()
-        labelmap: tensor of shape ()
+        log_ids: corresponding vehicle log ID per example.
+        timestamps: corresponding nanosecond timestamp per example.
+        args: training config.
+        model: Pytorch model.
+        x: tensor of shape (N,H,W,3) representing sensor data for each of N examples.
+        xstar: tensor of shape (N,H,W,3) representing rendered maps for each of N examples.
+        labelmap: tensor of shape (N,H,W) representing a semantic segmentation label map for each of N examples.
         probs: tensor of shape ()
     """
     N = x.shape[0]
@@ -238,15 +239,15 @@ def view_gradcam_results(
 
 
 def cross_entropy_forward_two_head(
-    model: nn.Module, args, split: str, x: Tensor, xstar: Tensor, y: Tensor, gt_is_match: Tensor
+    model: nn.Module, args: TrainingConfig, split: str, x: Tensor, xstar: Tensor, y: Tensor, gt_is_match: Tensor
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """
     Args:
-        model:
-        args:
+        model: Pytorch model.
+        args: training config.
         split:
-        x:
-        xstar:
+        x: tensor of shape (N,H,W,3) representing sensor data for each of N examples.
+        xstar: tensor of shape (N,H,W,3) representing rendered maps for each of N examples.
         y:
         gt_is_match:
 
@@ -327,53 +328,6 @@ def bce_w_logits_pytorch(x: Tensor, y: Tensor) -> Tensor:
     return loss_val.sum()
 
 
-def test_per_class_sigmoid_loss() -> None:
-    """ """
-    n = 5
-    num_classes = 6
-
-    class_logits = np.array(
-        [
-            [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],  # 3
-            [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],  # 4
-            [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],  # 5
-            [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],  # 0
-            [0.0, 1.0, 0.0, 0.0, 0.0, 0.0],  # 1
-        ]
-    ).reshape(n, num_classes)
-    class_logits = torch.from_numpy(class_logits).float()
-
-    y = np.array([[3], [4], [5], [0], [1]]).reshape(n)
-    y = torch.from_numpy(y)
-
-    # class_logits = torch.tensor(
-    #   [
-    #       [0,1],
-    #       [1,0],
-    #       [.5,.5]
-    #   ])
-    # y_onehot = torch.tensor(
-    #   [
-    #       [0,1],
-    #       [1,0],
-    #       [.5,.5]
-    #   ])
-    # Expected pytorch loss: tensor(0.5768)
-
-    loss = per_class_sigmoid_loss(class_logits, y)
-    print("Pytorch loss: ", loss)
-
-    # expected_loss = bce_w_logits(class_logits,y_onehot)
-    # print('Expected loss:', expected_loss)
-
-    # expected_pytorch_loss = bce_w_logits_pytorch(class_logits, y_onehot)
-    # print('Expected pytorch loss:', expected_pytorch_loss)
-
-    assert np.isclose(loss.item(), 0.6298, atol=1e-4)
-    # assert np.isclose(expected_loss.item(), 0.6298, atol=1e-4)
-    # assert np.isclose(expected_pytorch_loss.item(), 0.6298, atol=1e-4)
-
-
 def print_time_remaining(batch_time: AverageMeter, current_iter: int, max_iter: int) -> None:
     """ """
     remain_iter = max_iter - current_iter
@@ -390,27 +344,17 @@ def poly_learning_rate(base_lr: float, curr_iter: int, max_iter: int, power: flo
     return lr
 
 
-def test_poly_learning_rate() -> None:
-    """ """
-    lr = poly_learning_rate(0.001, curr_iter=0, max_iter=100, power=0.9)
-    assert np.isclose(lr, 0.001)
+def get_train_transform_list(args: TrainingConfig, viewpoint: SensorViewpoint) -> List[Callable]:
+    """Get data transforms for training split.
 
-    lr = poly_learning_rate(0.001, curr_iter=10, max_iter=100, power=0.9)
-    assert np.isclose(lr, 0.0009095325760829623)
+    We treat the semantic BEV label map as an RGB image, and normalize it.
 
-    lr = poly_learning_rate(0.001, curr_iter=99, max_iter=100, power=0.9)
-    assert np.isclose(lr, 1.5848931924611145e-05)
-
-    lr = poly_learning_rate(0.001, curr_iter=100, max_iter=100, power=0.9)
-    assert np.isclose(lr, 0.0)
-
-
-def get_train_transform_list(args: TrainingConfig, viewpoint: str) -> List[Callable]:
-    """Get data transforms for training split"""
+    In the ego-view, we derive binary masks from the semantic segmentation label map, and do not normalize it.
+    """
     mean, std = get_imagenet_mean_std()
 
     transform_list = []
-    if args.viewpoint == SensorViewpoint.EGOVIEW:
+    if viewpoint == SensorViewpoint.EGOVIEW:
         transform_list.extend([tbv_transform.ResizeLabelMapTriplet(), tbv_transform.CropBottomSquareTriplet()])
         if args.blur_input:
             transform_list.extend([tbv_transform.RandomGaussianBlurTriplet()])
@@ -424,12 +368,14 @@ def get_train_transform_list(args: TrainingConfig, viewpoint: str) -> List[Calla
                 ),
                 tbv_transform.ToTensorTriplet(grayscale_labelmap=args.viewpoint == SensorViewpoint.EGOVIEW),
                 tbv_transform.BinarizeLabelMapTriplet(),
-                tbv_transform.NormalizeTriplet(normalize_labelmap=args.viewpoint == SensorViewpoint.BEV, mean=mean, std=std),
+                tbv_transform.NormalizeTriplet(
+                    normalize_labelmap=args.viewpoint == SensorViewpoint.BEV, mean=mean, std=std
+                ),
             ]
         )
         # cannot rotate much unless we place a L2-norm constraint, instead of infty-norm
 
-    elif args.viewpoint == SensorViewpoint.BEV:
+    elif viewpoint == SensorViewpoint.BEV:
 
         if args.blur_input:
             transform_list.extend([tbv_transform.RandomGaussianBlurTriplet()])
@@ -466,8 +412,11 @@ def get_train_transform_list(args: TrainingConfig, viewpoint: str) -> List[Calla
     return transform_list
 
 
-def get_val_test_transform_list(args: TrainingConfig, viewpoint: str) -> List[Callable]:
-    """Get data transforms for val or test split"""
+def get_val_test_transform_list(args: TrainingConfig, viewpoint: SensorViewpoint) -> List[Callable]:
+    """Get data transforms for synthetic val, real val or test split.
+
+    No horizontal or vertical flips or applied. A center crop is used, instead of a random crop.
+    """
     mean, std = get_imagenet_mean_std()
 
     transform_list = [
@@ -483,11 +432,13 @@ def get_val_test_transform_list(args: TrainingConfig, viewpoint: str) -> List[Ca
     if viewpoint == SensorViewpoint.EGOVIEW:
         transform_list.extend([tbv_transform.BinarizeLabelMapTriplet()])
 
-    transform_list.extend([tbv_transform.NormalizeTriplet(normalize_labelmap=viewpoint == SensorViewpoint.BEV, mean=mean, std=std)])
+    transform_list.extend(
+        [tbv_transform.NormalizeTriplet(normalize_labelmap=viewpoint == SensorViewpoint.BEV, mean=mean, std=std)]
+    )
     return transform_list
 
 
-def get_img_transform_list(args: TrainingConfig, split: str, viewpoint: str) -> Callable:
+def get_img_transform_list(args: TrainingConfig, split: str, viewpoint: SensorViewpoint) -> Callable:
     """Return the input data transform for training (w/ data augmentations)
 
     Note: We do not use any random scaling, since we want to keep the data metric.
@@ -495,7 +446,7 @@ def get_img_transform_list(args: TrainingConfig, split: str, viewpoint: str) -> 
     Args:
         args: config for training/testing a model.
         split: dataset split.
-        viewpoint: either "bev" or "egoview"
+        viewpoint: either bird's eye view, or ego-view.
 
     Return:
         List of transforms
@@ -503,19 +454,19 @@ def get_img_transform_list(args: TrainingConfig, split: str, viewpoint: str) -> 
     if viewpoint not in [SensorViewpoint.EGOVIEW, SensorViewpoint.BEV]:
         raise RuntimeError("Unknown viewpoint")
 
-    if split not in ["train", "val", "test"]:
+    if split not in ["train", "synthetic_val", "val", "test"]:
         raise RuntimeError("Unknown split. Quitting ...")
 
     if split == "train":
-        transform_list = get_train_transform_list(args, viewpoint)
+        transform_list = get_train_transform_list(args, viewpoint=viewpoint)
 
-    elif split in ["val", "test"]:
-        transform_list = get_val_test_transform_list(args, viewpoint)
+    elif split in ["synthetic_val", "val", "test"]:
+        transform_list = get_val_test_transform_list(args, viewpoint=viewpoint)
 
     return tbv_transform.ComposeTriplet(transform_list)
 
 
-def get_optimizer(args, model):
+def get_optimizer(args: TrainingConfig, model: nn.Module):
     """ """
     # optimizer = torch.optim.SGD([{'params':
     #   filter(lambda p: p.requires_grad,
@@ -564,26 +515,26 @@ def get_dataloader(
     Returns:
         split_loader: data loader for the specified dataset split.
     """
-    if split not in ["train", "val", "test"]:
+    if split not in ["train", "synthetic_val", "val", "test"]:
         raise RuntimeError("Invalid data split requested.")
 
     data_transform = get_img_transform_list(training_args, split=split, viewpoint=dataset_args.viewpoint)
 
-    if split == "test" and not isinstance(eval_categories, list):
+    if split in ["val","test"] and not isinstance(eval_categories, list):
         raise ValueError("`eval_categories` must represent a list of categories when testing on the test split.")
 
-    if split in ["train", "val"] and eval_categories is not None:
-        raise ValueError("`eval_categories` must be set to None when training/evaluating on train/val splits.")
+    if split in ["train", "synthetic_val"] and eval_categories is not None:
+        raise ValueError("`eval_categories` must be set to None when training/evaluating on train or synthetic val splits.")
 
-    # TODO: pass the train vs. val list for log_ids in each section
     split_data = McdData(
         split=split,
         transform=data_transform,
-        args=dataset_args,
+        dataset_args=dataset_args,
+        training_args=training_args,
         filter_eval_by_visibility=filter_eval_by_visibility,
         eval_categories=eval_categories,
         loss_type=training_args.loss_type,
-        save_visualizations=save_visualizations
+        save_visualizations=save_visualizations,
     )
 
     drop_last = True if split == "train" else False
@@ -591,7 +542,7 @@ def get_dataloader(
     # note: we don't shuffle for the "val" or "test" splits
     split_loader = torch.utils.data.DataLoader(
         split_data,
-        batch_size=training_args.batch_size_test if split == "test" else training_args.batch_size,
+        batch_size=training_args.batch_size_test if split in ["val","test"] else training_args.batch_size,
         shuffle=True if split == "train" else False,
         num_workers=training_args.workers,
         pin_memory=True,
@@ -601,17 +552,15 @@ def get_dataloader(
     return split_loader
 
 
-def get_model(args: TrainingConfig, viewpoint: str) -> nn.Module:
+def get_model(args: TrainingConfig, viewpoint: SensorViewpoint) -> nn.Module:
     """Model factory to create a Pytorch model object, without TbV-specific weights.
 
     Args:
         args: configuration file for training/testing a model.
-        viewpoint:
+        viewpoint: dataset rendering perspective.
 
     Returns:
-        model: Pytorch model with random or pretrained weights.
-
-    We always wrap the model in Pytorch's DataParallel.
+        model: Pytorch model with random or pretrained weights. We always wrap the model in Pytorch's DataParallel.
     """
     if args.loss_type == "triplet":
         model = SiameseTripletResnet(args.num_layers, args.pretrained)
@@ -620,9 +569,8 @@ def get_model(args: TrainingConfig, viewpoint: str) -> nn.Module:
     elif args.loss_type == "cross_entropy":
         if args.model_name == "LateFusionSiameseCEResnet":
             model = LateFusionSiameseCEResnet(
-                args.num_layers, args.pretrained, args.num_ce_classes, args.late_fusion_operator
+                args.num_layers, args.pretrained, args.num_ce_classes, late_fusion_operator="concat"
             )
-
         elif args.model_name == "SingleModalityCEResnet":
             model = SingleModalityCEResnet(args.num_layers, args.pretrained, args.num_ce_classes)
         elif args.model_name == "EarlyFusionCEResnet":
@@ -656,33 +604,8 @@ def acc_improved_over_last_k_epochs(arr: List[float], k: int) -> bool:
     return max(arr[:-k]) < max(arr[-k:])
 
 
-def test_acc_improved_over_last_k_epochs() -> None:
-    """ """
-    acc = [0, 1, 2, 3, 4, 5, 6]
-    has_improved = acc_improved_over_last_k_epochs(acc, k=5)
-    assert has_improved
-
-    acc = [2, 2, 2, 2, 2, 2]
-    has_improved = acc_improved_over_last_k_epochs(acc, k=5)
-    assert not has_improved
-
-    acc = [2, 1, 1, 1, 1, 1]
-    has_improved = acc_improved_over_last_k_epochs(acc, k=5)
-    assert not has_improved
-
-    acc = [50, 1, 2, 3, 4, 5]
-    has_improved = acc_improved_over_last_k_epochs(acc, k=5)
-    assert not has_improved
-
-    acc = [50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 51]
-    has_improved = acc_improved_over_last_k_epochs(acc, k=5)
-    assert has_improved
-
-
 class BinaryClassificationAverageMeter:
-    """
-    An AverageMeter designed specifically for evaluating binary classification results.
-    """
+    """An AverageMeter designed specifically for evaluating binary classification results."""
 
     def __init__(self) -> None:
         """Initialize object."""
@@ -713,104 +636,3 @@ class BinaryClassificationAverageMeter:
 # sklearn.metrics.precision_recall_curve(y_true, probas_pred, *, pos_label=None, sample_weight=None)
 # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_recall_curve.html
 
-
-def test_classification_average_meter() -> None:
-    """The positive class is any map-change category"""
-
-    y_pred = torch.tensor(
-        [
-            0,  # correct (TN)
-            0,  # should have predicted change (mismatch) FN
-            1,  # correct (TP)
-            1,  # should have predicted no change (FP)
-        ]
-    )
-
-    y_true = torch.tensor([0, 1, 1, 0])
-    cam = BinaryClassificationAverageMeter()
-    cam.update(y_pred, y_true)
-    prec, rec, f1 = cam.get_metrics()
-
-    tp = 1
-    fp = 1
-    fn = 1
-
-    gt_prec = tp / (tp + fp)  # divide by # predicted positives
-    gt_rec = tp / (tp + fn)  # divide by actual # positives
-    gt_f1 = 2 * (gt_prec * gt_rec) / (gt_prec + gt_rec)
-
-    assert prec == gt_prec
-    assert rec == gt_rec
-    assert f1 == gt_f1
-
-
-def compute_mean_accuracy(
-    probs: Tensor, y_true: Tensor, n_class: int, verbose: bool
-) -> Tuple[float, np.ndarray]:
-    """over all classes
-
-    Args:
-        probs: (N,C)
-        y_true: (N,)
-
-    Returns:
-        mAcc
-        accs (C,)
-    """
-    y_pred = torch.argmax(probs, dim=1)
-
-    y_true = y_true.cpu().numpy()
-    y_pred = y_pred.cpu().numpy()
-
-    correct = y_true == y_pred
-
-    gt_class_freqs, bin_edges = np.histogram(y_true, bins=n_class)
-    gt_class_freqs = gt_class_freqs.astype(np.float32) / y_true.size
-
-    if verbose:
-        print("\tGT Class frequencies:", [f"{100*freq:.2f}%" for freq in gt_class_freqs])
-
-    accs = np.zeros(n_class)  # per class accuracy
-    for c in np.unique(y_true):
-
-        c_idxs = y_true == c
-        accs[c] = correct[c_idxs].sum() / c_idxs.sum()
-
-    return accs.mean(), accs
-
-
-def test_compute_mean_accuracy() -> None:
-    """ """
-
-    probs = torch.tensor(
-        [
-            [0.8, 0.1, 0.1],  # 0
-            [0.8, 0.1, 0.1],  # 0
-            [0.8, 0.1, 0.1],  # 0
-            [0.8, 0.1, 0.1],  # 0
-            [0.1, 0.8, 0.1],  # 1
-            [0.1, 0.1, 0.8],  # 2
-        ]
-    )
-    y_true = torch.tensor([0, 0, 1, 1, 2, 2])
-    n_class = 3
-
-    mAcc, accs = compute_mean_accuracy(probs, y_true, n_class, verbose=True)
-    assert mAcc == 0.5
-
-    y_hat = torch.argmax(probs, dim=1)
-    sam = SegmentationAverageMeter()
-    sam.update_metrics_cpu(pred=y_hat.cpu().numpy(), target=y_true.cpu().numpy(), num_classes=3)
-    _, accuracy_class, _, mAcc, _ = sam.get_metrics()
-    assert np.isclose(mAcc, 0.5)
-    assert np.allclose(accuracy_class, np.array([1, 0, 0.5]))
-
-
-if __name__ == "__main__":
-    # test_per_class_sigmoid_loss()
-    # test_compute_mean_accuracy()
-
-    # test_classification_average_meter()
-
-    # test_acc_improved_over_last_k_epochs()
-    pass

@@ -101,13 +101,13 @@ class EarlyFusionCEResnetWLabelMap(nn.Module):
     Accepts 3 args in forward().
     """
 
-    def __init__(self, num_layers: int, pretrained: bool, num_classes: int, viewpoint: str) -> None:
+    def __init__(self, num_layers: int, pretrained: bool, num_classes: int, viewpoint: SensorViewpoint) -> None:
         """
         Args:
             num_layers: number of desired ResNet layers, i.e. network depth.
             pretrained: whether to load Imagenet-pretrained network weights.
             num_classes:
-            viewpoint: "egoview" or "bev"
+            viewpoint: dataset rendering perspective, "egoview" or "bev"
         """
         super(EarlyFusionCEResnetWLabelMap, self).__init__()
         assert num_classes > 1

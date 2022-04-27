@@ -10,6 +10,7 @@ BevRenderingConfig:
 
     tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset
     rendered_dataset_dir: ""
+    seamseg_output_dataroot: /Users/johnlambert/Downloads/tbv_dataset/seamseg_output
 
     render_test_set_only: True
     jitter_vector_map: True

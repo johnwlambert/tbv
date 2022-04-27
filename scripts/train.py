@@ -12,20 +12,19 @@ International License.
 Originating Authors: John Lambert
 """
 
-import argparse
 import logging
-import math
 import os
 import random
 import shutil
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, Dict, Union
 
-import argoverse.utils.datetime_utils as datetime_utils
-import argoverse.utils.json_utils as json_utils
+import av2.utils.io as io_utils
+import click
 import cv2
+
 cv2.ocl.setUseOpenCL(False)
 import numpy as np
 import torch
@@ -33,8 +32,8 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 from mseg_semantic.utils.avg_meter import AverageMeter, SegmentationAverageMeter
 from mseg_semantic.utils.normalization_utils import get_imagenet_mean_std
+
 # from mseg_semantic.utils.training_utils import poly_learning_rate
-from mseg.utils.dir_utils import check_mkdir
 
 import tbv.rendering_config as rendering_config
 import tbv.training_config as training_config
@@ -45,73 +44,77 @@ from tbv.training.train_utils import (
     cross_entropy_forward,
     cross_entropy_forward_two_head,
 )
+from tbv.training_config import TrainingConfig
+import tbv.utils.logger_utils as logger_utils
+import tbv.utils.datetime_utils as datetime_utils
 
 
-def setup_logging(home_dir: str) -> None:
-    """ """
-    date_str = datetime_utils.generate_datetime_string()
-    log_output_fpath = f"{home_dir}/logging/orthoimagery_program_{date_str}.log"
-    check_mkdir(f"{home_dir}/logging")
-    print(f"Log will be saved to {log_output_fpath}")
-
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%m/%d/%Y %I:%M:%S %p",
-        filename=log_output_fpath,
-        level=logging.INFO,
-    )
-    logging.getLogger("boto").setLevel(logging.CRITICAL)
-    logging.debug("Init Debug")
-    logging.info("Init Info")
-    logging.warning("Init Warning")
-    logging.critical("Init Critical")
+logger_utils.setup_logging()
 
 
-# HOME_DIR = '/home/jlambert'
-HOME_DIR = "/home/ubuntu"
-setup_logging(HOME_DIR)
+def train(
+    dataset_args: Union[BevRenderingConfig, EgoviewRenderingConfig],
+    training_args: TrainingConfig,
+    training_config_path: Path,
+) -> None:
+    """Train a model using Pytorch.
 
+    We will load the train vs. validation splits from a file.
 
-def main(dataset_args: Union[BevRenderingConfig, EgoviewRenderingConfig], training_args: TrainingConfig) -> None:
-    """We will load the train vs. validation splits from a file"""
+    Args:
+        dataset_args: specification for rendered dataset.
+        training_args: specification for model training.
+        training_config_path: path to training config.
+    """
     np.random.seed(0)
     random.seed(0)
     cudnn.benchmark = True
 
-    logging.info(str(args))
+    # unique ID of training config file (file name stem).
+    config_stem = training_config_path.stem
 
     # compute_data_mean_std(args.data_root, args.modality, args.interp_type)
-    # load the cnst vs. awesome tags
 
     train_loader = train_utils.get_dataloader(dataset_args=dataset_args, training_args=training_args, split="train")
-    val_loader = train_utils.get_dataloader(dataset_args=dataset_args, training_args=training_args, split="val")
+    val_loader = train_utils.get_dataloader(
+        dataset_args=dataset_args, training_args=training_args, split="synthetic_val"
+    )
 
     model = train_utils.get_model(args=training_args, viewpoint=dataset_args.viewpoint)
-    optimizer = train_utils.get_optimizer(args, model)
+    optimizer = train_utils.get_optimizer(args=training_args, model=model)
 
-    cfg_stem = args.cfg_stem
     exp_start_time = datetime_utils.generate_datetime_string()
 
     results_dict = defaultdict(list)
-    results_dict["args"] = [{k: v for k, v in args.items()}]
+    results_dict["training_args"] = training_args.__dict__
+    results_dict["dataset_args"] = dataset_args.__dict__
 
-    for epoch in range(args.num_epochs):
+    for epoch in range(training_args.num_epochs):
         logging.info(f"On epoch {epoch}")
-        train_metrics_dict = run_epoch(args, epoch, model, train_loader, optimizer, split="train")
+        train_metrics_dict = run_epoch(
+            args=training_args, epoch=epoch, model=model, data_loader=train_loader, optimizer=optimizer, split="train"
+        )
 
         for k, v in train_metrics_dict.items():
             results_dict[f"train_{k}"] += [v]
 
-        val_metrics_dict = run_epoch(args, epoch, model, val_loader, optimizer, split="val")
+        val_metrics_dict = run_epoch(
+            args=training_args,
+            epoch=epoch,
+            model=model,
+            data_loader=val_loader,
+            optimizer=optimizer,
+            split="synthetic_val",
+        )
 
         for k, v in val_metrics_dict.items():
             results_dict[f"val_{k}"] += [v]
 
         # critical accuracy statistic
         crit_acc_stat = "val_"
-        if args.loss_type == "contrastive":
+        if training_args.loss_type == "contrastive":
             crit_acc_stat += "f1"
-        elif args.loss_type == "cross_entropy":
+        elif training_args.loss_type == "cross_entropy":
             crit_acc_stat += "mAcc"
         else:
             raise RuntimeError("Undefined loss type")
@@ -124,25 +127,24 @@ def main(dataset_args: Union[BevRenderingConfig, EgoviewRenderingConfig], traini
         # IF THE BEST MODEL, SAVE IT TO DISK
         if epoch == 0 or is_best:
 
-            results_dir = Path(args.model_save_dirpath) / exp_start_time
+            results_dir = Path(training_args.model_save_dirpath) / exp_start_time
             results_dir.mkdir(parents=True, exist_ok=True)
             ckpt_fpath = results_dir / "train_ckpt.pth"
             logging.info(f"Saving checkpoint to: {ckpt_fpath}")
-
             torch.save(
                 {
                     "epoch": epoch,
                     "state_dict": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "max_epochs": args.num_epochs,
+                    "max_epochs": training_args.num_epochs,
                 },
                 ckpt_fpath,
             )
 
         # save loss values to json for plotting (replacing the same file each time)
-        results_json_fpath = f"{results_dir}/results-{exp_start_time}-{cfg_stem}.json"
-        json_utils.save_json_dict(results_json_fpath, results_dict)
-        shutil.copyfile(args.config_path, f"{results_dir}/{Path(args.config_path).name}")
+        results_json_fpath = f"{results_dir}/results-{exp_start_time}-{config_stem}.json"
+        io_utils.save_json_dict(results_json_fpath, results_dict)
+        shutil.copyfile(training_config_path, f"{results_dir}/{training_config_path.name}")
 
         logging.info("Results on crit stat: " + str([f"{v:.3f}" for v in results_dict[crit_acc_stat]]))
         # this is the `patience' value
@@ -150,19 +152,30 @@ def main(dataset_args: Union[BevRenderingConfig, EgoviewRenderingConfig], traini
             logging.info(f"Epoch {epoch} was <5 or the best so far")
             continue
 
-        if args.lr_annealing_strategy == "reduce_on_plateau":
+        if training_args.lr_annealing_strategy == "reduce_on_plateau":
             # history already has length 6, and is not the best
 
             if not acc_improved_over_last_k_epochs(results_dict[crit_acc_stat], k=5):
                 # Decay the learning rate if we cannot improve val. acc. over k epochs.
                 for param_group in optimizer.param_groups:
                     logging.info("Learning rate was: ", param_group["lr"])
-                    param_group["lr"] *= args.reduce_on_plateau_power
+                    param_group["lr"] *= training_args.reduce_on_plateau_power
                     logging.info("After k strikes, learning rate decayed to: ", param_group["lr"])
 
 
-def run_epoch(args, epoch: int, model, data_loader, optimizer, split: str):
-    """Run all data belonging to a particular split through the network"""
+def run_epoch(
+    args: TrainingConfig, epoch: int, model: nn.Module, data_loader: torch.utils.data.DataLoader, optimizer, split: str
+) -> Dict[str, Any]:
+    """Run all data belonging to a particular split through the network.
+
+    Args:
+        args: parameters for model training.
+        epoch: current epoch.
+        model: Pytorch model.
+        data_loader:
+        optimizer:
+        split: dataset split to feed through network, either "train" (backprop) or "synthetic_val" (no backprop).
+    """
     batch_time = AverageMeter()
     data_time = AverageMeter()
     loss_meter = AverageMeter()
@@ -228,12 +241,14 @@ def run_epoch(args, epoch: int, model, data_loader, optimizer, split: str):
 
             # 	plt.show()
             # 	plt.close('all')
-
-            x = x.cuda(non_blocking=True)
-            xstar = xstar.cuda(non_blocking=True)
-            labelmap = labelmap.cuda(non_blocking=True)
-            y = y.cuda(non_blocking=True)
-            gt_is_match = is_match.cuda(non_blocking=True)
+            if torch.cuda.is_available():
+                x = x.cuda(non_blocking=True)
+                xstar = xstar.cuda(non_blocking=True)
+                labelmap = labelmap.cuda(non_blocking=True)
+                y = y.cuda(non_blocking=True)
+                gt_is_match = is_match.cuda(non_blocking=True)
+            else:
+                gt_is_match = is_match
 
             n = x.size(0)
 
@@ -250,7 +265,9 @@ def run_epoch(args, epoch: int, model, data_loader, optimizer, split: str):
                     )
 
                 else:
-                    is_match_probs, loss = cross_entropy_forward(model, args, split, x, xstar, labelmap, gt_is_match)
+                    is_match_probs, loss = cross_entropy_forward(
+                        model=model, args=args, split=split, x=x, xstar=xstar, labelmap=labelmap, y=gt_is_match
+                    )
 
                 # num_classes = len(list(set(CLASSNAME_TO_CLASSIDX.values())))
                 sam.update_metrics_cpu(
@@ -372,20 +389,40 @@ def run_epoch(args, epoch: int, model, data_loader, optimizer, split: str):
     return metrics_dict
 
 
+@click.command(help="Train map change detection models on the TbV Dataset.")
+@click.option(
+    "--training_config_name",
+    required=True,
+    type=str,
+    help="File name of training config file, under tbv/training_configs/* (not file path!). Should end in .yaml",
+)
+@click.option(
+    "--rendering_config_name",
+    required=True,
+    help="File name of rendering config file, under tbv/rendering_configs/* (not file path!). Should end in .yaml",
+    type=str,
+)
+@click.option(
+    "--gpu_ids",
+    type=str,
+    required=True,
+    help="Comma-separated list of gpu IDs to use for training, e.g. 0,1,2,3. For cpu-only training, use -1.",
+)
+def run_train(training_config_name: str, rendering_config_name: str, gpu_ids: str) -> None:
+    """Click entry point for model training."""
+    print(f"Using gpus {gpu_ids}")
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu_ids
+
+    dataset_args = rendering_config.load_rendering_config(rendering_config_name)
+    training_args = training_config.load_training_config(training_config_name)
+
+    logging.info("Dataset spec" + str(dataset_args))
+    logging.info("Training spec" + str(training_args))
+
+    training_config_path = Path(__file__).resolve().parent.parent / "tbv" / "training_configs" / training_config_name
+
+    train(dataset_args=dataset_args, training_args=training_args, training_config_path=training_config_path)
+
+
 if __name__ == "__main__":
-    """ """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--training_config_path", type=str, required=True, help="path to training config")
-    parser.add_argument("--gpu_ids", type=str, required=True, help="gpu IDs e.g. 0,1,2,3")
-    opts = parser.parse_args()
-
-    print(f"Using gpus {opts.gpu_ids}")
-    os.environ["CUDA_VISIBLE_DEVICES"] = opts.gpu_ids
-
-    opts.dataset_config_path = ""
-
-    dataset_args = rendering_config.load_rendering_config(opts.dataset_config_path)
-    training_args = training_config.load_training_config(opts.training_config_path)
-    args.cfg_stem = Path(opts.config_path).stem
-    args.config_path = opts.config_path
-    main(dataset_args, training_args)
+    run_train()

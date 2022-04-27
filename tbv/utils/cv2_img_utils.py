@@ -27,8 +27,6 @@ def hstack_imgs(img_list: List[np.ndarray]) -> np.ndarray:
     assert all(img.shape[0] == img_h for img in img_list)
     assert all(img.shape[2] == ch for img in img_list)
 
-    num_imgs = len(img_list)
-
     all_widths = [img.shape[1] for img in img_list]
     hstack_img = np.zeros((img_h, sum(all_widths), 3), dtype=np.uint8)
 

@@ -31,7 +31,7 @@ VALID_MODEL_NAMES = [
 @dataclass
 class TrainingConfig:
     """
-    TODO: Could use a hierarchy of configs to place rendering config inside the training config, as member. ask Hydra...
+    TODO: Could use a hierarchy of configs to place rendering config inside the training config, as member.
 
     Args:
         model_name:
@@ -52,8 +52,8 @@ class TrainingConfig:
             rotation (the coordinate origin is assumed to be the top-left corner).
         rotate_max:
 
-        lr_annealing_strategy: strategy for annearing learning rate, either `reduce_on_plateau` vs. `poly`
-        TODO: add reduce_on_plateau_power
+        lr_annealing_strategy: strategy for annealing learning rate, either `reduce_on_plateau` vs. `poly`
+        reduce_on_plateau_power: if using `reduce_on_plateau`, amount to decay LR by when plateau is achieved.
     """
 
     # model parameters
@@ -69,9 +69,6 @@ class TrainingConfig:
     independent_semantics_dropout_prob: float
     independent_map_dropout_prob: float
     use_multiple_negatives_per_sensor_img: bool
-
-    # testing
-    label_data_fpath: str  # path to where labels are stored (as JSON)
 
     # resource-specific hyperparameters
     workers: int
@@ -105,6 +102,7 @@ class TrainingConfig:
 
     # not used for published experiments, only for metric learning.
     contrastive_tp_dist_thresh: Optional[float] = None
+    reduce_on_plateau_power: Optional[float] = 0.1
 
     def __post_init__(self) -> None:
         """Verify certain fields."""
@@ -117,6 +115,10 @@ class TrainingConfig:
 
         if self.model_name == "SingleModalityCEResnet":
             assert len(self.fusion_modalities) == 1
+
+        elif self.model_name == "EarlyFusionCEResnetWLabelMap":
+            assert len(self.fusion_modalities) == 3
+            assert set(self.fusion_modalities) == set(["sensor", "semantics", "map"])
 
         assert self.model_name in VALID_MODEL_NAMES
 

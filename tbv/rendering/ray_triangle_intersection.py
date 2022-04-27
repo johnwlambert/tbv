@@ -18,17 +18,19 @@ import numpy as np
 
 
 def compute_triangle_plane_normal(v0: np.ndarray, v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
-    """
-    Compute normal to plane spanned by triangle's 3 vertices
+    """Compute normal to plane spanned by triangle's 3 vertices.
        v2
       /  \
      /    \
     v0 --- v1
 
     Args:
-        v0: triangle vertex 0, ordered counter-clockwise (CCW)
-        v1: triangle vertex 1
-        v2: triangle vertex 2
+        v0: (3,) array representing triangle vertex 0, ordered counter-clockwise (CCW).
+        v1: (3,) array representing triangle vertex 1.
+        v2: (3,) array representing triangle vertex 2.
+
+    Returns:
+        Unit length plane normal vector of shape (3,).
     """
     assert all([v.dtype in [np.float32, np.float64] for v in [v0, v1, v2]])
     # compute plane's normal
@@ -40,8 +42,8 @@ def compute_triangle_plane_normal(v0: np.ndarray, v1: np.ndarray, v2: np.ndarray
 
 
 def inside_outside_test(N: np.ndarray, v0: np.ndarray, v1: np.ndarray, v2: np.ndarray, P: np.ndarray) -> bool:
-    """
-    Compute normal to plane spanned by triangle's 3 vertices
+    """Determine whether a point on a 3d plane falls within a triangle's boundary.
+
        v2
       /  \
      /    \
@@ -50,13 +52,15 @@ def inside_outside_test(N: np.ndarray, v0: np.ndarray, v1: np.ndarray, v2: np.nd
     C is a vector perpendicular to triangle's plane 
 
     Args:
-        v0: triangle vertex 0, ordered counter-clockwise (CCW)
-        v1: triangle vertex 1
-        v2: triangle vertex 2
+        N: (3,) array representing plane normal.
+        v0: (3,) array representing triangle vertex 0, ordered counter-clockwise (CCW).
+        v1: (3,) array representing triangle vertex 1.
+        v2: (3,) array representing triangle vertex 2.
+        P: (3,) array representing a point lying on the triangle's plane.
 
     Returns:
-        boolean indicating...
-	"""
+        Boolean indicating whether plane point falls within triangle.
+    """
     # edge 0
     edge0 = v1 - v0
     vp0 = P - v0
@@ -84,13 +88,18 @@ def inside_outside_test(N: np.ndarray, v0: np.ndarray, v1: np.ndarray, v2: np.nd
 def inside_outside_test_vectorized(
     N: np.ndarray, v0: np.ndarray, v1: np.ndarray, v2: np.ndarray, Ps: np.ndarray
 ) -> np.array:
-    """
+    """Determine whether multiple points on a 3d plane fall within a triangle's boundary.
+
     Args:
-        Ps: points on the triangle's plane. Not necessarily within
-            the triangle. These came from ray-plane intersection.
+        N: (3,) array representing plane normal.
+        v0: (3,) array representing triangle vertex 0, ordered counter-clockwise (CCW).
+        v1: (3,) array representing triangle vertex 1.
+        v2: (3,) array representing triangle vertex 2.
+        Ps: (N,3) array representing points lying on the triangle's plane.
+            Not necessarily within the triangle. These came from ray-plane intersection.
 
     Returns:
-        boolean indicating whether plane point falls within triangle
+        Boolean array of shape (N,) indicating which plane points falls within the triangle.
     """
     # edge 0
     edge0 = v1 - v0
@@ -114,18 +123,18 @@ def inside_outside_test_vectorized(
 def ray_triangle_intersect(
     origin: np.ndarray, ray_dir: np.ndarray, v0: np.ndarray, v1: np.ndarray, v2: np.ndarray
 ) -> Tuple[bool, Optional[np.ndarray]]:
-    """t is the distance along the ray from the origin
+    """Compute ray-triangle intersection, if such a intersection is possible.
 
     Args:
-        origin: shape (3,)
+        origin: Array of shape (3,) representing ray origin.
         ray_dir: ray direction shape (3,)
-        v0: triangle vertex 0, ordered counter-clockwise (CCW)
-        v1: triangle vertex 1
-        v2: triangle vertex 2
+        v0: (3,) array representing triangle vertex 0, ordered counter-clockwise (CCW).
+        v1: (3,) array representing triangle vertex 1.
+        v2: (3,) array representing triangle vertex 2.
 
     Returns:
-        boolean whether intersection is valid
-        P: intersection point if exists, otherwise None
+        Boolean indicating whether valid intersection occurred.
+        P: array of shape (3,) representing intersection point if exists, otherwise None.
     """
     N = compute_triangle_plane_normal(v0, v1, v2)
 
@@ -139,7 +148,7 @@ def ray_triangle_intersect(
     # compute d parameter of implicit line equation
     d = N.dot(v0)
 
-    # compute t (equation 3)
+    # compute t. t is the distance along the ray from the origin
     t = (d - N.dot(origin)) / NdotRayDirection
     # check if the triangle is in behind the ray
     if t < 0:
@@ -158,7 +167,9 @@ def ray_triangle_intersect(
 def ray_triangle_intersect_moller_trombore(
     origin: np.ndarray, ray_dir: np.ndarray, v0: np.ndarray, v1: np.ndarray, v2: np.ndarray
 ) -> Tuple[bool, Optional[np.ndarray]]:
-    """t is the distance along the ray from the origin
+    """Compute ray-triangle intersection using the Moller-Trombore algorithm, if such a intersection is possible.
+
+    t is the distance along the ray from the origin
 
     Args:
         origin: shape (3,)

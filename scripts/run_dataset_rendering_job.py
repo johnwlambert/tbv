@@ -17,18 +17,17 @@ Script to launch rendering jobs in parallel. Each rendering job is specific to a
 log, and so N processes handle N logs at a time (one per process).
 """
 
-import argparse
 import glob
 import logging
 import os
 import random
-import shutil
 import time
 from pathlib import Path
-from shutil import copyfile
 from typing import Any, Dict, List, Mapping, Tuple, Union
 
+import click
 import cv2
+
 cv2.ocl.setUseOpenCL(False)
 import numpy as np
 import torch
@@ -41,7 +40,7 @@ import tbv.utils.logger_utils as logger_utils
 logger_utils.setup_logging()
 
 import tbv.rendering_config as rendering_config
-from tbv.data_splits import LOG_IDS_TO_RENDER
+from tbv.splits import TRAIN, VAL, TEST
 from tbv.rendering_config import BevRenderingConfig, EgoviewRenderingConfig, SensorViewpoint
 from tbv.rendering.orthoimagery_generator import execute_orthoimagery_job
 from tbv.rendering.egoview_vector_map_rendering_utils import execute_egoview_job
@@ -50,13 +49,16 @@ from tbv.utils.multiprocessing_utils import send_list_to_workers_with_worker_id
 
 ORDERED_RING_CAMERA_LIST = [cam_enum.value for cam_enum in RingCameras]
 
+# render all 1043 logs from train, real val, and real test.
+LOG_IDS_TO_RENDER = list(TRAIN) + list(VAL) + list(TEST)
+
 
 def render_log_imagery(
     dataloader: AV2SensorDataLoader,
     log_id: str,
     local_dataset_dir: Path,
     log_dir: Path,
-    exp_cfg: Union[BevRenderingConfig, EgoviewRenderingConfig],
+    config: Union[BevRenderingConfig, EgoviewRenderingConfig],
 ) -> None:
     """
 
@@ -65,33 +67,32 @@ def render_log_imagery(
         log_id: unique identifier for TbV log/scenario to render.
         local_dataset_dir:
         log_dir:
-        exp_cfg: specification of rendering parameters for BEV or ego-view data, for experiment.
+        config: specification of rendering parameters for BEV or ego-view data, for experiment.
     """
     logger_utils.setup_logging()
 
-    if exp_cfg.viewpoint == SensorViewpoint.BEV:
+    if config.viewpoint == SensorViewpoint.BEV:
         # Generate bird's eye view image
         execute_orthoimagery_job(
             dataloader=dataloader,
             label_maps_dir=log_dir,
             log_id=log_id,
-            config=exp_cfg,
+            config=config,
         )
 
-    elif exp_cfg.viewpoint == SensorViewpoint.EGOVIEW:
+    elif config.viewpoint == SensorViewpoint.EGOVIEW:
         execute_egoview_job(
             dataloader=dataloader,
             log_id=log_id,
-            config=exp_cfg,
+            config=config,
         )
 
 
 def render_log_dataset(
-    exp_cfg: Union[BevRenderingConfig, EgoviewRenderingConfig],
+    config: Union[BevRenderingConfig, EgoviewRenderingConfig],
     local_dataset_dir: Path,
     log_id: str,
     log_dir: Path,
-    mseg_semantic_repo_root: Path,
     dataloader: AV2SensorDataLoader,
 ) -> None:
     """Verify that images and semantic segmentation label maps exist if required by the config.
@@ -101,14 +102,12 @@ def render_log_dataset(
     Shared for both orthoimagery or ego-view rendering.
 
     Args:
-        exp_cfg: specification of rendering parameters for BEV or ego-view data, for experiment.
+        config: specification of rendering parameters for BEV or ego-view data, for experiment.
         local_dataset_dir:
         log_id: unique identifier for TbV log/scenario to render.
         log_dir:
-        mseg_semantic_repo_root:
         dataloader: dataloader object for Argoverse 2.0-style data.
     """
-
     for camera_name in ORDERED_RING_CAMERA_LIST:
         if not Path(f"{log_dir}/sensors/cameras/{camera_name}").exists():
             print(f"Missing one of the camera directories: {log_id} {camera_name}")
@@ -120,7 +119,7 @@ def render_log_dataset(
         cam_label_maps_found = all(
             [
                 Path(
-                    f"{slice_extraction_dir}/mseg-3m-480_{log_id}_{camera_name}_universal_ss/358/gray/{Path(img_fpath).stem}.png"
+                    f"{log_dir}/mseg-3m-480_{log_id}_{camera_name}_universal_ss/358/gray/{Path(img_fpath).stem}.png"
                 ).exists()
                 for img_fpath in glob.glob(f"{log_dir}/{camera_name}/*.jpg")
             ]
@@ -129,19 +128,22 @@ def render_log_dataset(
 
     print(f"All label maps found for {log_id}? {all_label_maps_exist}")
     logging.info(f"All label maps found for {log_id}? {all_label_maps_exist}")
-    if not all_label_maps_exist and exp_cfg.recompute_segmentation:
-        raise RuntimeError("Semantic label maps must be precomputed.")
+    if not all_label_maps_exist and isinstance(config, BevRenderingConfig) and config.filter_ground_with_semantics:
+        raise RuntimeError("Semantic label maps must be precomputed in order to filter ground w/ semantics.")
 
     render_log_imagery(
-        dataloader=dataloader, log_id=log_id, local_dataset_dir=local_dataset_dir, log_dir=log_dir, exp_cfg=exp_cfg
+        dataloader=dataloader, log_id=log_id, local_dataset_dir=local_dataset_dir, log_dir=log_dir, config=config
     )
 
 
 def dataset_renderer_worker(
     log_ids: List[str], start_idx: int, end_idx: int, worker_id: int, kwargs: Mapping[str, Any]
 ) -> None:
-    """Given a list of log_ids to render call render_log_dataset on each of them.
-    
+    """Given a list of log_ids to render, call render_log_dataset() on each of them.
+
+    If a GPU is used (i.e. for ray-casting), we split the rendering processes evenly among the
+    available GPUs.
+
     Args:
         log_ids: list of strings
         start_idx: integer
@@ -151,29 +153,21 @@ def dataset_renderer_worker(
     logging.info(f"Worker {worker_id} started...")
 
     local_dataset_dir = kwargs["local_dataset_dir"]
-    mseg_semantic_repo_root = kwargs["mseg_semantic_repo_root"]
-    exp_cfg = kwargs["exp_cfg"]
+    config = kwargs["config"]
+    dataloader = kwargs["dataloader"]
 
-    use_gpu = (
-        isinstance(exp_cfg, BevRenderingConfig)
-        and (exp_cfg.recompute_segmentation or exp_cfg.projection_method == "ray_tracing")
+    use_gpu = isinstance(config, BevRenderingConfig) and (
+        config.recompute_segmentation or config.projection_method == "ray_tracing"
     )
     if use_gpu:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not supported on your platform.")
         # will need to use the GPU, split processes among all available gpus
         num_gpus = torch.cuda.device_count()
-        gpu_id = worker_id // (exp_cfg.num_processes // num_gpus)
+        gpu_id = worker_id // (config.num_processes // num_gpus)
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     logging.info("Creating Argoverse dataloader...")
-    # must also process the images we'll use for LiDAR later
-    dataloader = AV2SensorDataLoader(
-        data_dir=Path(local_dataset_dir) / "logs", labels_dir=Path(local_dataset_dir) / "logs"
-    )
-    for i, loaded_log_id in enumerate(dataloader.get_log_ids()):
-        if i % 20 == 0:
-            logging.info(f"Dataloader loaded {i}th: {loaded_log_id}")
 
     chunk_sz = end_idx - start_idx
     # process each image between start_idx and end_idx
@@ -187,18 +181,13 @@ def dataset_renderer_worker(
 
         log_id = log_ids[idx]
 
-        # if exp_cfg.viewpoint == "egoview" and not
-        # 	print(f'Egoview: Skip {log_id} since not all seamseg label maps exist')
-        # 	continue # TODO: check if seamseg label maps exist
-
         try:
             log_dir = Path(local_dataset_dir) / "logs" / log_id
             render_log_dataset(
-                exp_cfg=exp_cfg,
+                config=config,
                 local_dataset_dir=local_dataset_dir,
                 log_id=log_id,
                 log_dir=log_dir,
-                mseg_semantic_repo_root=mseg_semantic_repo_root,
                 dataloader=dataloader,
             )
 
@@ -206,71 +195,63 @@ def dataset_renderer_worker(
             logging.exception(f"Extraction failed for {log_id}")
 
 
-def render_dataset_all_logs(
-    exp_cfg: Union[BevRenderingConfig, EgoviewRenderingConfig], mseg_semantic_repo_root: Path
-) -> None:
-    """
-    Can have GPU thread, and also orthoimagery, simultaneously without blocking.
+def render_dataset_all_logs(config: Union[BevRenderingConfig, EgoviewRenderingConfig], log_ids: List[str]) -> None:
+    """Launch worker processes to render TbV data in the BEV or ego-view.
 
     log_id's take on the form
     '0CjqAXeTID58UXtezwdAag5zt6bpsKFp__2020-07-28-Z1F0061'
 
     Args:
-        exp_cfg:
-        mseg_semantic_repo_root:
+        config: config w/ rendering parameters specified.
+        log_ids: IDs of TbV vehicle logs to render.
     """
     np.random.seed(0)
     random.seed(0)
 
-    local_dataset_dir = exp_cfg.tbv_dataroot
-
-    if not (Path(exp_cfg.tbv_dataroot) / "logs").exists():
+    if not (Path(config.tbv_dataroot) / "logs").exists():
         raise RuntimeError("TbV Dataset logs must be saved to {DATAROOT}/logs/")
 
-    log_ids = LOG_IDS_TO_RENDER
-    num_processes = exp_cfg.num_processes
+    num_processes = config.num_processes
+
+    # must also process the images we'll use for LiDAR later
+    dataloader = AV2SensorDataLoader(
+        data_dir=Path(config.tbv_dataroot) / "logs", labels_dir=Path(config.tbv_dataroot) / "logs"
+    )
+    for i, loaded_log_id in enumerate(dataloader.get_log_ids()):
+        if i % 20 == 0:
+            logging.info(f"Dataloader loaded {i}th: {loaded_log_id}")
 
     if num_processes == 1:
-        kwargs = {
-            "local_dataset_dir": local_dataset_dir,
-            "mseg_semantic_repo_root": mseg_semantic_repo_root,
-            "exp_cfg": exp_cfg,
-        }
+        kwargs = {"local_dataset_dir": config.tbv_dataroot, "config": config, "dataloader": dataloader}
         dataset_renderer_worker(log_ids=log_ids, start_idx=0, end_idx=len(log_ids), worker_id=0, kwargs=kwargs)
     else:
-        # if we are on a 8-gpu machine
-        # assert num_processes % 8 == 0
         send_list_to_workers_with_worker_id(
             num_processes=num_processes,
             list_to_split=log_ids,
             worker_func_ptr=dataset_renderer_worker,
-            local_dataset_dir=local_dataset_dir,
-            mseg_semantic_repo_root=mseg_semantic_repo_root,
-            exp_cfg=exp_cfg,
+            local_dataset_dir=config.tbv_dataroot,
+            config=config,
+            dataloader=dataloader,
         )
 
 
-if __name__ == "__main__":
-    """Pass the name of the desired config for rendering, via the command line."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config_name",
-        type=str,
-        required=True,
-        help="provide the name of the config to use for rendering",
-    )
-    parser.add_argument(
-        "--mseg_semantic_repo_root",
-        type=str,
-        default="/Users/johnlambert/Downloads/mseg-semantic",
-        # required=True,
-        help="provide the name of the config to use for rendering",
-    )
-
-    args = parser.parse_args()
-    logging.info(args)
-    print(args)
+@click.command(help="Render TbV Data.")
+@click.option(
+    "--config_name",
+    help="Provide the name of the config to use for rendering (not the path)."
+    "Must be a name listed under tbv/rendering_configs/*",
+    required=True,
+    type=str,
+)
+def run_render_dataset_all_logs(config_name: str) -> None:
+    """Click entry point for rendering of TbV logs."""
+    logging.info(config_name)
+    print(f"Rendering with {config_name}")
 
     # load config for experiment
-    exp_config = rendering_config.load_rendering_config(args.config_name)
-    render_dataset_all_logs(exp_cfg=exp_config, mseg_semantic_repo_root=Path(args.mseg_semantic_repo_root))
+    config = rendering_config.load_rendering_config(config_name)
+    render_dataset_all_logs(config=config, log_ids=LOG_IDS_TO_RENDER)
+
+
+if __name__ == "__main__":
+    run_render_dataset_all_logs()

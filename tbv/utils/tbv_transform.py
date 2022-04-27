@@ -28,7 +28,6 @@ Reference: See https://github.com/hszhao/semseg/blob/master/util/transform.py
 """
 
 import collections
-import math
 import random
 from typing import Callable, List, Optional, Tuple
 
@@ -64,18 +63,19 @@ class ComposeTriplet(object):
     def __call__(
         self, image1: np.ndarray, image2: np.ndarray, labelmap: np.ndarray
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Perform series of transforms
+        """Perform series of transforms sequentially to 3 inputs, preserving pixel-to-pixel alignment.
 
         Args:
-            image1: (H,W,C)
-            image2: (H,W,C)
-            labelmap: (H,W)
+            image1: array of shape (H,W,C) representing sensor image.
+            image2: array of shape (H,W,C) representing HD map rendering.
+            labelmap: array of shape (H,W) representing semantic segmentation label map.
 
         Returns:
-            image1: (C,H,W)
-            image2: (C,H,W)
-            labelmap: (1,H,W)
+            image1: tensor of shape (C,H,W) representing sensor_img, after normalization
+                and pre-processing.
+            image2: tensor of shape (C,H,W) representing HD map rendering, after normalization
+                and pre-processing.
+            labelmap: tensor of shape (C2,H,W), where C2 is the number of stacked binary masks.
         """
         for t in self.transforms:
             image1, image2, labelmap = t(image1, image2, labelmap)
@@ -297,8 +297,19 @@ class BinarizeLabelMapTriplet(object):
     def __call__(
         self, image1: torch.Tensor, image2: torch.Tensor, labelmap: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """ """
+        """Convert a semantic segmentation labelmap (defined over N classes) to 5 stacked binary masks.
 
+        Args:
+            image1
+            image2
+            labelmap: tensor of shape (H,W)
+
+        Returns:
+            image1: tensor of shape (H,W,C)
+            image2: tensor of shape (H,W,C)
+            labelmap: tensor of shape (5, H, W), representing 5 stacked binary masks, corresponding
+               to 5 semantic classes:zebra crosswalk, general lane marking, bike lane, road surface, and plain crosswalk
+        """
         # now in CHW order
         _, h, w = image1.shape
 
@@ -341,7 +352,12 @@ class ResizeTriplet(object):
     def __call__(
         self, image1: np.ndarray, image2: np.ndarray, labelmap: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """ """
+        """
+        Args:
+            image1: array of shape (H,W,C) representing sensor image.
+            image2: array of shape (H,W,C) representing HD map rendering.
+            labelmap: array of shape (H,W) representing semantic segmentation label map.
+        """
         image1 = cv2.resize(image1, self.size[::-1], interpolation=cv2.INTER_LINEAR)
         image2 = cv2.resize(image2, self.size[::-1], interpolation=cv2.INTER_NEAREST)
         labelmap = cv2.resize(labelmap, self.size[::-1], interpolation=cv2.INTER_NEAREST)
@@ -504,7 +520,18 @@ class CropTriplet(object):
         image2: np.ndarray,
         labelmap: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Crop both inputs to specified width and height, either via random or center crop"""
+        """Crop both inputs to specified width and height, either via random or center crop.
+
+        Args:
+            image1: array of shape (H,W,C) representing sensor image.
+            image2: array of shape (H,W,C) representing HD map rendering.
+            labelmap: array of shape (H,W) representing semantic segmentation label map.
+        
+        Returns:
+            image1: array of shape (crop_h, crop_w, C) representing sensor image.
+            image2: array of shape (crop_h, crop_w, C) representing HD map rendering.
+            labelmap: array of shape (crop_h, crop_w) representing semantic segmentation label map.
+        """
         h, w, c = image1.shape
         assert image1.shape == image2.shape
         if self.grayscale_labelmap:
@@ -628,6 +655,12 @@ class RandomHorizontalFlipTriplet(object):
     def __call__(
         self, image1: np.ndarray, image2: np.ndarray, labelmap: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Args:
+            image1: array of shape (H,W,C) representing sensor image.
+            image2: array of shape (H,W,C) representing HD map rendering.
+            labelmap: array of shape (H,W) representing semantic segmentation label map.
+        """
         if random.random() < self.p:
             image1 = cv2.flip(image1, 1)
             image2 = cv2.flip(image2, 1)

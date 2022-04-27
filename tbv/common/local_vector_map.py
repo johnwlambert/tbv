@@ -18,7 +18,6 @@ Interface to fetch chained lane segments, lane markings not next to "scene" boun
 """
 
 import logging
-from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import av2.geometry.infinity_norm_utils as infinity_norm_utils

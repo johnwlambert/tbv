@@ -86,7 +86,7 @@ def filter_by_semantic_classes(label_map: np.ndarray, uv: np.ndarray, render_roa
     return logicals
 
 
-def run_semantic_segmentation(log_id: str, slice_extraction_dir: str, mseg_semantic_repo_root: str) -> None:
+def run_semantic_segmentation(log_id: str, log_dir: Path, mseg_semantic_repo_root: Path) -> None:
     """Run MSeg model at single-scale over all images in a log.
 
     Single scale is actually sufficient (multi-scale inference not required for good results).
@@ -107,11 +107,11 @@ def run_semantic_segmentation(log_id: str, slice_extraction_dir: str, mseg_seman
     use_gpu = True
     for camera_name in list(RingCameras):
 
-        input_file = f"{slice_extraction_dir}/{camera_name}"
+        input_file = f"{log_dir}/{camera_name}"
         # move the predicted label maps into the log's own directory
         dirname = f"mseg-3m-480_{log_id}_{camera_name}_universal_ss"
         src_dir = f"{mseg_semantic_repo_root}/temp_files/{dirname}"
-        dst_dir = f"{slice_extraction_dir}/{dirname}"
+        dst_dir = f"{log_dir}/{dirname}"
 
         # if subsampled_label_maps_exist(
         #   f'{mseg_semantic_repo_root}/temp_files', # parent dir
@@ -142,8 +142,8 @@ def run_semantic_segmentation(log_id: str, slice_extraction_dir: str, mseg_seman
         if args.dataset == "default":
             args.dataset = "_".join(Path(args.input_file).parts[-2:])
 
-        check_mkdir(src_dir)
-        check_mkdir(dst_dir)
+        Path(src_dir).mkdir(parents=True, exist_ok=True)
+        Path(dst_dir).mkdir(parents=True, exist_ok=True)
         # RE-USE THE OLD ONES
         # copy_label_map_dir_contents(dst_dir, src_dir)
 
@@ -154,13 +154,17 @@ def run_semantic_segmentation(log_id: str, slice_extraction_dir: str, mseg_seman
 
 
 def copy_label_map_dir_contents(src_dir: str, dst_dir: str) -> None:
-    """ """
+    """
+    Args:
+        src_dir:
+        dst_dir:
+    """
     if not Path(dst_dir).exists():
         shutil.move(src_dir, dst_dir)
     else:
         # cannot move if already exists
         img_fpaths = glob.glob(f"{src_dir}/358/gray/*.png")
-        check_mkdir(f"{dst_dir}/358/gray")
+        Path(f"{dst_dir}/358/gray").mkdir(parents=True, exist_ok=True)
         for img_fpath in img_fpaths:
             fname_stem = Path(img_fpath).stem
             dst_fpath = f"{dst_dir}/358/gray/{fname_stem}.png"

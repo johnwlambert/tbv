@@ -11,13 +11,10 @@ TrainingConfig:
   num_fc_layers: 1
 
   # inputs # modalities_for_random_dropout: ['map','semantics']
-  fusion_modalities: ['map','semantics']
+  fusion_modalities: ['sensor','map','semantics']
   independent_semantics_dropout_prob: float
   independent_map_dropout_prob: float
   use_multiple_negatives_per_sensor_img: True
-
-  # testing
-  label_data_fpath: ""  # path to where labels are stored (as JSON)
 
   # resource-specific hyperparameters
   workers: 64

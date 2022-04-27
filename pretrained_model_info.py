@@ -117,7 +117,7 @@ MODEL_METADATA_DICT = {
     },
 
     '6d3bfc13-1da4-49f0-bf6d-f6b1fc9647d8': {
-        "release_notes": "dropout either map or semantics, 100% prob? unintuitive Experiment",
+        "release_notes": "dropout either map or semantics, 100% prob? unintuitive Experiment (best model)",
         "yaml_filename": "train_2021_03_01_egoview_w_labelmap_config_earlyfusion_dropout_v1.yaml",
         "train_results_json_filename": "results-2021_03_01_19_06_29-train_2021_03_01_egoview_w_labelmap_config_earlyfusion_dropout_v1.json",
         "prior_dirname": "2021_03_01_19_06_29"
@@ -152,7 +152,7 @@ MODEL_METADATA_DICT = {
     },
 
     '615683e4-8431-4b31-ba1d-3523e6165fa9': {
-        "release_notes": "late fusion, march 3",
+        "release_notes": "late fusion, march 3, sensor + map",
         "yaml_filename": "train_2021_03_03_egoview_config_latefusion_v1.yaml",
         "train_results_json_filename": "results-2021_03_04_05_10_28-train_2021_03_03_egoview_config_latefusion_v1.json",
         "prior_dirname": "2021_03_04_05_10_28"
@@ -166,7 +166,7 @@ MODEL_METADATA_DICT = {
     },
 
     '88f42746-3374-40f7-a015-625652ca62c8': {
-        "release_notes": "v2, independent_semantics_dropout_prob: 0.25, independent_map_dropout_prob: 0.25",
+        "release_notes": "all 3 inputs, blurred, v2, independent_semantics_dropout_prob: 0.25, independent_map_dropout_prob: 0.25",
         "yaml_filename": "train_2021_03_07_egoview_config_dropout_v2.yaml",
         "train_results_json_filename": "results-2021_03_07_16_31_18-train_2021_03_07_egoview_config_dropout_v2.json",
         "prior_dirname": "2021_03_07_16_31_18"
@@ -180,14 +180,14 @@ MODEL_METADATA_DICT = {
     },
     
     '98e50a71-c7b2-411d-99f4-781826488a26': {
-        "release_notes": "independent_map_dropout_prob: 0.5, independent_semantics_dropout_prob: 0.0, 3/08 v1",
+        "release_notes": "blurred input, independent_map_dropout_prob: 0.5, independent_semantics_dropout_prob: 0.0, 3/08 v1",
         "yaml_filename": "train_2021_03_08_egoview_config_dropout_v1.yaml",
         "train_results_json_filename": "results-2021_03_08_14_37_03-train_2021_03_08_egoview_config_dropout_v1.json",
         "prior_dirname": "2021_03_08_14_37_03"
     },
 
     '0061c32d-da98-4583-a311-8f2fc37b6655': {
-        "release_notes": "3/08 v2, independent_map_dropout_prob: 0.0, independent_semantics_dropout_prob: 0.5",
+        "release_notes": "all 3 input modalities, 3/08 v2, independent_map_dropout_prob: 0.0, independent_semantics_dropout_prob: 0.5",
         "yaml_filename": "train_2021_03_08_egoview_config_dropout_v2.yaml",
         "train_results_json_filename": "results-2021_03_09_01_13_03-train_2021_03_08_egoview_config_dropout_v2.json",
         "prior_dirname": "2021_03_09_01_13_03"

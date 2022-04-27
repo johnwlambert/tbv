@@ -17,7 +17,6 @@ Uses OpenCV to rasterize polylines and polygons to a raster canvas, representing
 the bird's eye view (BEV).
 """
 
-import logging
 import math
 from pathlib import Path
 from typing import Tuple
@@ -275,7 +274,7 @@ def render_lane_boundary(
     if ("DOUBLE" in mark_type) or ("SOLID_DASH" in mark_type) or ("DASH_SOLID" in mark_type):
         left, right = polyline_utils.get_double_polylines(img_polyline, width_scaling_factor=4)  # in pixels
 
-    if mark_type in [LaneMarkType.SOLID_WHITE, LaneMarkType.SOLID_YELLOW, LaneMarkType.NONE]:
+    if mark_type in [LaneMarkType.SOLID_WHITE, LaneMarkType.SOLID_YELLOW, LaneMarkType.SOLID_BLUE, LaneMarkType.NONE]:
         draw_polyline_cv2(img_polyline, bev_img, bound_color, img_h, img_w, thickness_px=line_width)
 
     elif mark_type in [LaneMarkType.DOUBLE_DASH_YELLOW, LaneMarkType.DOUBLE_DASH_WHITE]:
@@ -295,7 +294,7 @@ def render_lane_boundary(
             img_polyline, bev_img, bound_color, img_h, img_w, thickness_px=line_width, dash_interval_px=dash_interval_px
         )
 
-    elif (mark_type == LaneMarkType.SOLID_DASH_YELLOW and side == "right") or (
+    elif (mark_type in [LaneMarkType.SOLID_DASH_WHITE, LaneMarkType.SOLID_DASH_YELLOW] and side == "right") or (
         mark_type == LaneMarkType.DASH_SOLID_YELLOW and side == "left"
     ):
         draw_polyline_cv2(left, bev_img, bound_color, img_h, img_w, thickness_px=line_width * 2)
@@ -303,7 +302,7 @@ def render_lane_boundary(
             right, bev_img, bound_color, img_h, img_w, thickness_px=line_width * 2, dash_interval_px=dash_interval_px
         )
 
-    elif (mark_type == LaneMarkType.SOLID_DASH_YELLOW and side == "left") or (
+    elif (mark_type in [LaneMarkType.SOLID_DASH_WHITE, LaneMarkType.SOLID_DASH_YELLOW] and side == "left") or (
         mark_type == LaneMarkType.DASH_SOLID_YELLOW and side == "right"
     ):
         draw_dashed_polyline(
