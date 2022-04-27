@@ -6,9 +6,8 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
-import av2.geometry.interpolate as interp_utils
 import av2.geometry.polyline_utils as polyline_utils
 import av2.utils.io as io_utils
 import click
@@ -192,7 +191,7 @@ class SpatialMapChangeEvent:
             Whether ... (by L2 norm, not L-infinity norm).
         """
         if not isinstance(city_SE3_egovehicle, SE3):
-            raise ValueError(f"Query egovehicle pose must be SE(3) object.")
+            raise ValueError("Query egovehicle pose must be SE(3) object.")
 
         if "crosswalk" in self.change_type:
             # map entity represents a polygon.
@@ -219,7 +218,7 @@ class SpatialMapChangeEvent:
             Boolean indicating a changed map entity is both (1) within spatial range, and (2) visible in camera frustum
         """
         if not isinstance(city_SE3_egovehicle, SE3):
-            raise ValueError(f"Query egovehicle pose must be SE(3) object.")
+            raise ValueError("Query egovehicle pose must be SE(3) object.")
 
         is_nearby = self.check_if_in_range(
             log_id=log_id, city_SE3_egovehicle=city_SE3_egovehicle, range_thresh_m=range_thresh_m
@@ -254,7 +253,7 @@ class SpatialMapChangeEvent:
         return is_visible
 
 
-def get_test_set_event_info_bev(data_root: Path) -> Dict[str, List[SpatialMapChangeEvent]]:
+def get_test_set_event_info_bev(data_root: Path, split: str) -> Dict[str, List[SpatialMapChangeEvent]]:
     """Load GT labels for test set from disk, and convert them to SpatialMapChangeEvent objects per log.
 
     Args:
@@ -263,8 +262,13 @@ def get_test_set_event_info_bev(data_root: Path) -> Dict[str, List[SpatialMapCha
     Returns:
         logid_to_mc_events_dict: dictionary from log_id to associated annotated GT map change events.
     """
+    if split not in ["val", "test"]:
+        raise ValueError("Cannot evaluate on a split other than val or test.")
+
+    localization_data_fpath = LABELED_DATA_ROOT / f"tbv_{split}_split_annotations.json"
+
     # TODO: name this file by the split name.
-    localization_data_fpath = LABELED_DATA_ROOT / "mcd_test_set_localization_in_space.json"
+    #localization_data_fpath = LABELED_DATA_ROOT / "mcd_test_set_localization_in_space.json"
     localization_data = io_utils.read_json_file(localization_data_fpath)
 
     logid_to_mc_events_dict = defaultdict(list)
@@ -280,87 +284,8 @@ def get_test_set_event_info_bev(data_root: Path) -> Dict[str, List[SpatialMapCha
             mc_event = SpatialMapChangeEvent.from_event_dict(log_id=log_id, event_dict=event_data, avm=avm)
             logid_to_mc_events_dict[log_id] += [mc_event]
 
+    print(f"Loaded SpatialMapChangeEvents for {len(logid_to_mc_events_dict)} logs in {split} split.")
     return logid_to_mc_events_dict
-
-
-def calc_ap(gt_ranked: np.ndarray, recalls_interp: np.ndarray, ninst: int) -> Tuple[float, np.ndarray]:
-    """Compute precision and recall, interpolated over n fixed recall points.
-    Args:
-        gt_ranked: Ground truths, ranked by confidence.
-        recalls_interp: Interpolated recall values.
-        ninst: Number of instances of this class.
-
-    Returns:
-        avg_precision: Average precision.
-        precisions_interp: Interpolated precision values.
-    """
-    tp = gt_ranked
-
-    cumulative_tp = np.cumsum(tp, dtype=np.int)
-    cumulative_fp = np.cumsum(~tp, dtype=np.int)
-    cumulative_fn = ninst - cumulative_tp
-
-    precisions = cumulative_tp / (cumulative_tp + cumulative_fp + np.finfo(float).eps)
-    recalls = cumulative_tp / (cumulative_tp + cumulative_fn)
-    precisions = interp(precisions)
-    precisions_interp = np.interp(recalls_interp, recalls, precisions, right=0)
-    avg_precision = precisions_interp.mean()
-    return avg_precision, precisions_interp
-
-
-def plot_pr_curve_sklearn(split: str, all_gts: np.ndarray, all_pred_dists: np.ndarray):
-    """ """
-    all_probs = 1 / all_pred_dists
-
-    from sklearn.metrics import precision_recall_curve
-
-    precision, recall, thresholds = precision_recall_curve(all_gts, all_probs)
-    pdb.set_trace()
-    plt.plot(recall, precision)
-    plt.xlabel("recall")
-    plt.ylabel("precision")
-    plt.title(f"PR Curve on {split} set")
-    plt.show()
-
-
-def plot_pr_curve_numpy(split: str, all_gts: np.ndarray, all_pred_dists: np.ndarray):
-    """ """
-    all_probs = 1 / all_pred_dists
-    pdb.set_trace()
-
-    map_am = MeanAveragePrecisionAvgMeter()
-    map_am.update(all_probs, all_gts)
-
-    plt.title(f"AP: {ap}")
-    plt.plot(recalls_interp, precisions_interp)
-    plt.xlabel("recall")
-    plt.ylabel("precision")
-    plt.show()
-
-    return ap
-
-
-# def test_plot_pr_curve_numpy():
-#     """ """
-#     split = "val"
-#     # positive should be when it is a match
-#     # negative should be when it is a mismatch
-#     #                           TP    FP  TN   TP
-#     all_gts = np.array([1, 0, 0, 1])
-#     all_pred_dists = np.array([0.9, 0.3, 1.5, 0.5])
-#     plot_pr_curve_numpy(split, all_gts, all_pred_dists)
-
-
-def interp(prec: np.ndarray) -> np.ndarray:
-    """Interpolate the precision over all recall levels.
-    Args:
-            prec: Precision at all recall levels (N, ).
-            method: Accumulation method.
-    Returns:
-            prec_interp: Interpolated precision at all recall levels (N,).
-    """
-    prec_interp = np.maximum.accumulate(prec[::-1])[::-1]
-    return prec_interp
 
 
 @click.command(help="Evaluate predictions on the val or test split of the TbV Dataset.")
@@ -368,12 +293,17 @@ def interp(prec: np.ndarray) -> np.ndarray:
     "-d",
     "--data-root",
     required=True,
-    help="Path to local directory where the Argoverse 2 Sensor Dataset logs are stored.",
+    help="Path to local directory where the TbV Dataset logs are stored.",
     type=click.Path(exists=True),
 )
-def run_evaluate_map_change_detection() -> None:
+@click.option(
+    "--split",
+    type=str,
+    required=True
+)
+def run_evaluate_map_change_detection(data_root: str, split: str) -> None:
     """Click entry point for evaluation of map change detection results."""
-    get_test_set_event_info_bev(data_root)
+    get_test_set_event_info_bev(data_root=Path(data_root), split=split)
 
 
 if __name__ == "__main__":

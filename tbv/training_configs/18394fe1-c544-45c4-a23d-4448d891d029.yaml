@@ -16,9 +16,6 @@ TrainingConfig:
   independent_map_dropout_prob: float
   use_multiple_negatives_per_sensor_img: False
 
-  # testing
-  label_data_fpath: ""  # path to where labels are stored (as JSON)
-
   # resource-specific hyperparameters
   workers: 16
   batch_size: 256
@@ -47,19 +44,3 @@ TrainingConfig:
   # TbV taxonomy
   num_ce_classes: 2
   num_finegrained_classes: 7
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

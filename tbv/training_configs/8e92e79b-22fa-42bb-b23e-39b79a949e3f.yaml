@@ -16,9 +16,6 @@ TrainingConfig:
   independent_map_dropout_prob: float
   use_multiple_negatives_per_sensor_img: True
 
-  # testing
-  label_data_fpath: ""  # path to where labels are stored (as JSON)
-
   # resource-specific hyperparameters
   workers: 16
   batch_size: 256

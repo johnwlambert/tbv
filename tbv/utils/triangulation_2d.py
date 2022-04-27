@@ -20,7 +20,6 @@ We use `trimesh` for ...
 """
 
 import mapbox_earcut as earcut
-import matplotlib.pyplot as plt
 import numpy as np
 import trimesh
 

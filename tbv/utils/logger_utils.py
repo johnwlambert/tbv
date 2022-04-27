@@ -40,7 +40,7 @@ def get_logger() -> logging.Logger:
 def setup_logging() -> None:
     """Set up a Python logger that writes a log file to disk."""
     date_str = datetime_utils.generate_datetime_string()
-    log_output_fpath = LOGGING_DIR / f"tbv_rendering_program_{date_str}.log"
+    log_output_fpath = LOGGING_DIR / f"tbv_program_{date_str}.log"
     LOGGING_DIR.mkdir(exist_ok=True, parents=True)
     print(f"Log will be saved to {log_output_fpath}")
 

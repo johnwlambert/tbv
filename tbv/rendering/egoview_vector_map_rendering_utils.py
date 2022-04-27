@@ -14,10 +14,8 @@ Originating Authors: John Lambert
 
 import copy
 import logging
-import os
 import math
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
@@ -26,6 +24,7 @@ import cv2
 import imageio
 import numpy as np
 from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
+from av2.datasets.sensor.constants import RingCameras
 from av2.map.map_api import ArgoverseStaticMap
 from av2.rendering.map import EgoViewMapRenderer
 
@@ -40,8 +39,13 @@ from tbv.rendering.bev_map_renderer import (
 from tbv.rendering_config import EgoviewRenderingConfig
 from tbv.synthetic_generation.map_perturbation import SyntheticChangeType
 
+from tbv.eval_timestamps import EVAL_TIMESTAMPS
+
 
 logger = logging.getLogger(__name__)
+
+
+ORDERED_RING_CAMERA_LIST = [cam_enum.value for cam_enum in RingCameras]
 
 
 GRAY_BGR = [168, 168, 168]
@@ -83,36 +87,37 @@ def execute_egoview_job(dataloader: AV2SensorDataLoader, log_id: str, config: Eg
     # only using ring front center for the time being
     camera_name = "ring_front_center"
 
-    cam_im_fpaths = dataloader.get_ordered_log_cam_fpaths(log_id, camera_name)
-    num_cam_imgs = len(cam_im_fpaths)
+    lidar_fpaths = dataloader.get_ordered_log_lidar_fpaths(log_id=log_id)
+    lidar_fpaths.sort()
+    num_log_sweeps = len(lidar_fpaths)
 
-    # if car has moved significantly, re-render
-    egocenter_last_rendering = np.array([0, 0])
+    for i, lidar_fpath in enumerate(lidar_fpaths):
 
-    for i, im_fpath in enumerate(cam_im_fpaths):
+        # same checks below as in orthoimagery_generator.py, to end up with renderings at identical timestamps.
         if i % 50 == 0:
-            logging.info(f"\tOn file {i}/{num_cam_imgs} of camera {camera_name} of {log_id}")
+            logger.info(f"On sweep {i}/{num_log_sweeps}, generating ego-view for camera {camera_name} of {log_id}")
+        lidar_timestamp_ns = int(Path(lidar_fpath).stem)
 
+        if lidar_timestamp_ns not in EVAL_TIMESTAMPS[log_id]:
+            # print(f"\tSkip {lidar_timestamp_ns} not an eval timestamp. {i}/{num_log_sweeps}")
+            continue
+
+        # ensure all frustums will exist
+        if any(
+            [
+                dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp_ns) is None
+                for camera_name in ORDERED_RING_CAMERA_LIST
+            ]
+        ):
+            print(f"\tSkip {lidar_timestamp_ns} corresponding image missing")
+            continue
+
+        im_fpath = dataloader.get_closest_img_fpath(
+            log_id, cam_name="ring_front_center", lidar_timestamp_ns=lidar_timestamp_ns
+        )
         cam_timestamp = cam_timestamp_from_img_fpath(im_fpath)
         city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, cam_timestamp)
-        if city_SE3_egovehicle is None:
-            logger.info("missing LiDAR pose")
-            continue
-
         ego_center = city_SE3_egovehicle.translation.squeeze()[:2]
-        egomotion_since_last_rendering = np.linalg.norm(ego_center - egocenter_last_rendering)
-        # logger.info(f"Egovehicle moved {egomotion_since_last_rendering:.2f} m since last rendering")
-        if egomotion_since_last_rendering <= EGOMOTION_DIST_THRESH_M:
-            continue
-
-        # # load feather lidar file path, e.g. '315978406032859416.feather'
-        lidar_fpath = dataloader.get_closest_lidar_fpath(log_id, cam_timestamp)
-        if lidar_fpath is None:
-            # without depth map, cant do this accurately
-            continue
-
-        # update the last ego-center now
-        egocenter_last_rendering = ego_center
 
         lidar_pts = io_utils.read_lidar_sweep(lidar_fpath, attrib_spec="xyz")
         lidar_timestamp = lidar_timestamp_from_lidar_fpath(lidar_fpath)
@@ -134,10 +139,10 @@ def execute_egoview_job(dataloader: AV2SensorDataLoader, log_id: str, config: Eg
         )
         if depth_map is None:
             logger.info("Depth map creation failed, skipping this image frame...")
+            print(f"\tSkip {lidar_timestamp_ns} depth map failed")
             continue
 
         pinhole_camera = dataloader.get_log_pinhole_camera(log_id=log_id, cam_name=camera_name)
-        egovehicle_SE3_city = city_SE3_egovehicle.inverse()
         ego_metadata = EgoViewMapRenderer(
             depth_map=depth_map,
             city_SE3_ego=city_SE3_egovehicle,
@@ -145,6 +150,7 @@ def execute_egoview_job(dataloader: AV2SensorDataLoader, log_id: str, config: Eg
             avm=avm,
         )
 
+        print(f"Rendering {lidar_timestamp_ns}")
         if config.jitter_vector_map and not config.render_test_set_only:
             for augment_type in SyntheticChangeType:
                 try:

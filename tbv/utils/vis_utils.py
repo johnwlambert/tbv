@@ -12,7 +12,6 @@ International License.
 Originating Authors: John Lambert
 """
 
-import os
 from pathlib import Path
 from typing import List
 

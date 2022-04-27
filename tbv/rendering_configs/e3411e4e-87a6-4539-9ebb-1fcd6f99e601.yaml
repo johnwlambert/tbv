@@ -5,7 +5,6 @@ EgoviewRenderingConfig:
   use_depth_map_for_occlusion: True
 
   num_processes: 1
-  render_vector_map_only: False
   render_reflectance: False
   recompute_segmentation: False
 
@@ -13,6 +12,7 @@ EgoviewRenderingConfig:
 
   tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset/logs
   rendered_dataset_dir: /Users/johnlambert/Downloads/tbv_dataset/rendered_egoview_2022_03_29
+  seamseg_output_dataroot: /Users/johnlambert/Downloads/tbv_dataset/seamseg_output
 
   render_test_set_only: False
   jitter_vector_map: True

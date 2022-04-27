@@ -2,7 +2,7 @@
 BevRenderingConfig:
 
     _target_: tbv.rendering_config.BevRenderingConfig
-    num_processes: 1
+    num_processes: 20
 
     # Hyperparameters
     render_vector_map_only: False
@@ -13,13 +13,12 @@ BevRenderingConfig:
 
     range_m: 20 # 20 m in all directions
 
-    # rendered_dataset_dir: /Users/jlambert/Downloads/TbV_v0.1/rendered_egoview_2021_09_03
-
-    tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset
-    rendered_dataset_dir: /home/ubuntu/rendered_bev_2022_03_10
+    tbv_dataroot: /srv/scratch/jlambert30/tbv_dataset
+    rendered_dataset_dir: /srv/scratch/jlambert30/tbv_dataset/rendered_bev_2022_03_27_evaltimestamps
+    seamseg_output_dataroot: /srv/scratch/jlambert30/tbv_dataset/seamseg_output
 
     render_test_set_only: True
-    jitter_vector_map: True
+    jitter_vector_map: False
     max_dist_to_del_crosswalk: 15 # meters, augmentation will abort if not found in range
 
     use_histogram_matching: False

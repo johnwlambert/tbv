@@ -54,10 +54,10 @@ def get_ground_surface_grid_triangles(
         for y in range(-range_m, range_m):
 
             # we set z=0 since on a flat plane.
-            v0 = np.array([x, y, 0]).astype(np.float)
-            v1 = np.array([x + 1, y, 0]).astype(np.float)
-            v2 = np.array([x, y + 1, 0]).astype(np.float)
-            v3 = np.array([x + 1, y + 1, 0]).astype(np.float)
+            v0 = np.array([x, y, 0]).astype(np.float32)
+            v1 = np.array([x + 1, y, 0]).astype(np.float32)
+            v2 = np.array([x, y + 1, 0]).astype(np.float32)
+            v3 = np.array([x + 1, y + 1, 0]).astype(np.float32)
 
             # fmt: off
             vertices_ego_fr = np.vstack(
@@ -109,10 +109,10 @@ def get_flat_plane_grid_triangles(range_m: float = 30) -> TRIANGLES_TYPE:
         # loop over y
         for y in range(-range_m, range_m):
 
-            v0 = np.array([x, y, 0]).astype(np.float)
-            v1 = np.array([x + 1, y, 0]).astype(np.float)
-            v2 = np.array([x, y + 1, 0]).astype(np.float)
-            v3 = np.array([x + 1, y + 1, 0]).astype(np.float)
+            v0 = np.array([x, y, 0]).astype(np.float32)
+            v1 = np.array([x + 1, y, 0]).astype(np.float32)
+            v2 = np.array([x, y + 1, 0]).astype(np.float32)
+            v3 = np.array([x + 1, y + 1, 0]).astype(np.float32)
 
             tri_lower = [v0, v1, v2]
             tri_upper = [v2, v1, v3]
@@ -154,7 +154,6 @@ def prune_triangles_to_2d_frustum(
         boolean whe
     """
     num_triangles = len(triangles)
-    range_m = 2
 
     tri_centroids = [np.mean(np.array(tri), axis=0) for tri in triangles]
     tri_centroids = np.array(tri_centroids)

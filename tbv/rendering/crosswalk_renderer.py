@@ -33,7 +33,7 @@ no guarantee the vertices are ordered CW or CCW (no consistent winding order).
 """
 
 import math
-from typing import List, Tuple, Union
+from typing import Tuple
 
 import av2.geometry.interpolate as interp_utils
 import av2.geometry.polyline_utils as polyline_utils
@@ -41,7 +41,7 @@ import av2.rendering.vector as vector_rendering_utils
 import matplotlib.pyplot as plt
 import numpy as np
 from av2.rendering.map import EgoViewMapRenderer
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString
 
 import tbv.rendering.polygon_rasterization as polygon_rasterization
 import tbv.utils.cv2_img_utils as cv2_img_utils

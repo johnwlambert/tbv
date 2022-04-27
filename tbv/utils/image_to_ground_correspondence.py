@@ -33,7 +33,6 @@ from av2.geometry.se3 import SE3
 from av2.map.map_api import ArgoverseStaticMap
 from av2.geometry.camera.pinhole_camera import PinholeCamera
 
-import tbv.utils.logger_utils as logger_utils
 import tbv.utils.mseg_interface as mseg_interface
 import tbv.utils.z1_egovehicle_mask_utils as z1_mask_utils
 from tbv.rendering_config import BevRenderingConfig
@@ -81,8 +80,6 @@ def get_point_rgb_correspondences_raytracing(
 
     origin = egovehicle_SE3_camera.translation.squeeze()
     img_h, img_w = rgb_img.shape[:2]
-    fx = pinhole_camera.intrinsics.fx_px
-    fy = pinhole_camera.intrinsics.fy_px
 
     rgb_vals = np.zeros((0, 3), dtype=np.uint8)
     ego_pts = np.zeros((0, 3), dtype=np.float32)
@@ -172,7 +169,7 @@ def get_point_rgb_correspondences_lidar(
     log_id: str,
     loader: AV2SensorDataLoader,
     cam_timestamp: int,
-    lidar_timestamp: int,
+    lidar_timestamp_ns: int,
     lidar_pts: np.ndarray,
     camera_name: str,
     rgb_img: np.ndarray,
@@ -187,7 +184,7 @@ def get_point_rgb_correspondences_lidar(
         log_id: string representing unique identifier for TbV log/scenario.
         loader: data loader.
         cam_timestamp: integer timestamp in nanoseconds of ...
-        lidar_timestamp: integer timestamp in nanoseconds of ...
+        lidar_timestamp_ns: integer timestamp in nanoseconds of ...
         lidar_pts: array of shape ()
         rgb_img: array of shape (H,W,3) representing an RGB image.
         city_SE3_egovehicle: pose of the egovehicle within the city coordinate frame.
@@ -200,7 +197,7 @@ def get_point_rgb_correspondences_lidar(
         points_lidar_time=lidar_pts,
         cam_name=camera_name,
         cam_timestamp_ns=cam_timestamp,
-        lidar_timestamp_ns=lidar_timestamp,
+        lidar_timestamp_ns=lidar_timestamp_ns,
         log_id=log_id,
     )
 
@@ -235,7 +232,7 @@ def filter_to_ground_projected_pixels(
     lidar_pts: np.ndarray,
     loader: AV2SensorDataLoader,
     log_id: str,
-    lidar_timestamp: int,
+    lidar_timestamp_ns: int,
     label_maps_dir: Path,
 ) -> np.ndarray:
     """
@@ -244,7 +241,7 @@ def filter_to_ground_projected_pixels(
         lidar_pts: array of shape (N,3) representing 3d coordinates of LiDAR returns.
         loader: data loader.
         log_id: string representing unique identifier for TbV log/scenario.
-        lidar_timestamp: integer timestamp in nanoseconds of ...
+        lidar_timestamp_ns: integer timestamp in nanoseconds of ...
         label_maps_dir: directory root for where semantic segmentation label maps are saved on disk.
 
     Returns:
@@ -258,7 +255,7 @@ def filter_to_ground_projected_pixels(
     # for each camera frustum
     for camera_enum in RingCameras:
         camera_name = camera_enum.value
-        im_fpath = loader.get_closest_im_fpath(log_id, camera_name, lidar_timestamp)
+        im_fpath = loader.get_closest_im_fpath(log_id, camera_name, lidar_timestamp_ns)
         if im_fpath is None:
             continue
 
@@ -270,7 +267,7 @@ def filter_to_ground_projected_pixels(
             points_lidar_time=copy.deepcopy(lidar_pts),
             cam_name=camera_name,
             cam_timestamp_ns=cam_timestamp,
-            lidar_timestamp_ns=lidar_timestamp,
+            lidar_timestamp_ns=lidar_timestamp_ns,
             log_id=log_id,
         )
 
@@ -278,11 +275,7 @@ def filter_to_ground_projected_pixels(
         # convert to int before indexing into label map
         uv = np.round(uv).astype(np.int32)
 
-        within_bnds = within_img_bnds(uv, camera_config)
-        valid_projection = np.logical_and.reduce([valid_proj, within_bnds])
-
-        # TODO: use logical_and.reduce
-        uv_valid = uv[valid_projection]
+        uv_valid = uv[valid_pts_bool]
 
         label_map_path = mseg_interface.get_mseg_label_map_fpath_from_image_info(
             label_maps_dir, log_id, camera_name, img_fname_stem
@@ -292,7 +285,7 @@ def filter_to_ground_projected_pixels(
         valid_semantics = mseg_interface.filter_by_semantic_classes(label_map, uv_valid)
 
         valid_semantics_idxs = np.where(valid_semantics)[0]
-        valid_camera_ground_idxs = np.where(valid_projection)[0][valid_semantics_idxs]
+        valid_camera_ground_idxs = np.where(valid_pts_bool)[0][valid_semantics_idxs]
 
         camera_infers_ground = np.zeros(num_lidar_pts, dtype=bool)
         camera_infers_ground[valid_camera_ground_idxs] = 1

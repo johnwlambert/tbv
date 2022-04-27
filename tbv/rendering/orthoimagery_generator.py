@@ -20,7 +20,6 @@ Sensor data includes ring camera images and potentially also LiDAR sweeps.
 import collections
 import copy
 import logging
-import pdb
 import time
 from pathlib import Path
 from typing import Optional
@@ -36,12 +35,10 @@ from av2.rendering.color import GREEN_HEX, RED_HEX
 from av2.structures.sweep import Sweep
 from av2.map.map_api import ArgoverseStaticMap
 from av2.datasets.sensor.av2_sensor_dataloader import AV2SensorDataLoader
-
+from av2.datasets.sensor.constants import RingCameras
 from av2.geometry.camera.pinhole_camera import PinholeCamera
 
 # cv2.ocl.setUseOpenCL(False)
-
-from av2.datasets.sensor.constants import RingCameras
 
 try:
     import tbv.utils.histogram_matching as histogram_matching_utils
@@ -58,6 +55,8 @@ from tbv.synthetic_generation.map_perturbation import SyntheticChangeType
 
 from tbv.utils.seamseg import SEAMSEG_PALETTE
 
+from tbv.eval_timestamps import EVAL_TIMESTAMPS
+
 # from luminance_correction import run_lam_algorithm
 
 # aggregate sensor data from at most 10 sweeps at a time, in a ring buffer
@@ -68,6 +67,8 @@ N_SWEEPS_BEFORE_RENDERING = 10
 
 # AV has to have moved at least 5 meters to render next frame (hyperparameter)
 EGOMOTION_DIST_THRESH_M = 5
+
+MINIMAL_MOTION_THRESH_M = 0.5
 
 ORDERED_RING_CAMERA_LIST = [cam_enum.value for cam_enum in RingCameras]
 
@@ -103,17 +104,17 @@ def render_orthoimagery_for_logs_raytracing(
 
     pinhole_camera_dict = {
         camera_name: dataloader.get_log_pinhole_camera(log_id=log_id, cam_name=camera_name)
-        for camera_name in RING_CAMERA_LIST
+        for camera_name in ORDERED_RING_CAMERA_LIST
     }
 
     # if car has moved significantly, re-render
     egocenter_last_rendering = np.array([0, 0])
 
     frustum_ring_buffer_city_pts_dict = {
-        camera_name: collections.deque(maxlen=RING_BUFFER_LEN) for camera_name in RING_CAMERA_LIST
+        camera_name: collections.deque(maxlen=RING_BUFFER_LEN) for camera_name in ORDERED_RING_CAMERA_LIST
     }
     frustum_ring_buffer_rgb_vals_dict = {
-        camera_name: collections.deque(maxlen=RING_BUFFER_LEN) for camera_name in RING_CAMERA_LIST
+        camera_name: collections.deque(maxlen=RING_BUFFER_LEN) for camera_name in ORDERED_RING_CAMERA_LIST
     }
 
     lidar_fpaths = dataloader.get_ordered_log_lidar_fpaths(log_id=log_id)
@@ -122,42 +123,59 @@ def render_orthoimagery_for_logs_raytracing(
     for i, lidar_fpath in enumerate(lidar_fpaths):
 
         logger.info(f"On sweep {i}/{len(lidar_fpaths)}")
-        lidar_timestamp = int(Path(lidar_fpath).stem)
+        lidar_timestamp_ns = int(Path(lidar_fpath).stem)
+        print(f"On {lidar_timestamp_ns}")
 
-        l_city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, lidar_timestamp)
-        if l_city_SE3_egovehicle is None:
-            logger.info("missing LiDAR pose")
-            continue
-
+        l_city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, lidar_timestamp_ns)
         ego_center = l_city_SE3_egovehicle.translation.squeeze()[:2]
         egomotion_since_last_rendering = np.linalg.norm(ego_center - egocenter_last_rendering)
         # logger.info(f"Egovehicle moved {egomotion_since_last_rendering:.2f} m since last rendering")
-        if egomotion_since_last_rendering <= EGOMOTION_DIST_THRESH_M:
+
+        is_eval_timestamp = lidar_timestamp_ns in EVAL_TIMESTAMPS[log_id]
+        sufficient_sweeps = num_sweeps_raytraced >= N_SWEEPS_BEFORE_RENDERING
+        insufficient_egomotion = egomotion_since_last_rendering <= MINIMAL_MOTION_THRESH_M
+
+        if not is_eval_timestamp and sufficient_sweeps:
+            # only render from the official eval list (at train time the user could modify this
+            # parameter to render more training examples, if desired)
+            print(f"\tSkip {lidar_timestamp_ns} sufficient sweeps and not an eval timestamp.")
+            continue
+        elif not is_eval_timestamp and not sufficient_sweeps and insufficient_egomotion:
+            # Raytracing at every single sweep is unnecessary if no motion. However,
+            # it's useful in the beginning to get accumulation started.
+            print(f"\tSkip {lidar_timestamp_ns} insufficient motion")
             continue
 
         # ensure all frustums will exist
         if any(
             [
-                dataloader.get_closest_img_fpath(log_id, camera_enum.value, lidar_timestamp) is None
+                dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp_ns) is None
                 for camera_name in ORDERED_RING_CAMERA_LIST
             ]
         ):
+            print(f"\tSkip {lidar_timestamp_ns} corresponding image missing")
             continue
 
         if not config.render_vector_map_only:
             # actually do the ray-tracing!
             for j, camera_name in enumerate(ORDERED_RING_CAMERA_LIST):
-                # print(f'{lidar_timestamp} On {i} -> {camera_name}')
+                # print(f'{lidar_timestamp_ns} On {i} -> {camera_name}')
 
-                if config.make_bev_semantic_img:
-                    cam_im_fpath = dataloader.get_closest_seamseg_im_fpath(log_id, camera_name, lidar_timestamp)
-                else:
-                    cam_im_fpath = dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp)
-
-                if cam_im_fpath is None or not Path(cam_im_fpath).exists():
+                cam_im_fpath = dataloader.get_closest_img_fpath(log_id, camera_name, lidar_timestamp_ns)
+                if cam_im_fpath is None:
                     logger.info("missing corresponding camera image")
+                    print(f"\tSkip {lidar_timestamp_ns}")
                     continue
+
                 cam_timestamp = int(Path(cam_im_fpath).stem)
+                if config.make_bev_semantic_img:
+                    # this is actually the path to the semantic label map (use this instead of image captured by camera).
+                    cam_im_fpath = f"{config.seamseg_output_dataroot}/{log_id}/seamseg_label_maps_{camera_name}/{cam_timestamp}.png"
+                    
+                if not Path(cam_im_fpath).exists():
+                    logger.info("missing corresponding camera image")
+                    print(f"\tSkip {lidar_timestamp_ns}")
+                    continue
 
                 if not config.render_vector_map_only:
                     rgb_img = imageio.imread(cam_im_fpath)
@@ -175,9 +193,6 @@ def render_orthoimagery_for_logs_raytracing(
 
                 # egovehicle position at camera time
                 city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id, cam_timestamp)
-                if city_SE3_egovehicle is None:
-                    logger.info("missing camera pose")
-                    continue
 
                 # triangle vertices are provided in the egovehicle frame
                 all_triangles = triangle_grid_utils.get_ground_surface_grid_triangles(
@@ -238,8 +253,12 @@ def render_orthoimagery_for_logs_raytracing(
         #   continue
 
         num_sweeps_raytraced += 1
-        if num_sweeps_raytraced < N_SWEEPS_BEFORE_RENDERING:
-            continue  # wait to accumulate more first
+        # update latest, and record that we raytraced at this position.
+        egocenter_last_rendering = ego_center
+        if lidar_timestamp_ns not in EVAL_TIMESTAMPS[log_id]:
+            # only render from the official eval list (at train time the user could modify this
+            # parameter to render more training examples, if desired)
+            continue
 
         if config.render_vector_map_only:
             # dummy, empty arrays
@@ -247,12 +266,12 @@ def render_orthoimagery_for_logs_raytracing(
             accumulated_rgb_vals = np.zeros((0, 3), dtype=np.uint8)
         else:
             pts_to_concat = []
-            for camera_name in RING_CAMERA_LIST:
+            for camera_name in ORDERED_RING_CAMERA_LIST:
                 pts_to_concat.extend(list(frustum_ring_buffer_city_pts_dict[camera_name]))
             accumulated_city_pts = np.vstack(pts_to_concat)
 
             rgb_to_concat = []
-            for camera_name in RING_CAMERA_LIST:
+            for camera_name in ORDERED_RING_CAMERA_LIST:
                 rgb_to_concat.extend(list(frustum_ring_buffer_rgb_vals_dict[camera_name]))
             accumulated_rgb_vals = np.vstack(rgb_to_concat)
 
@@ -265,13 +284,11 @@ def render_orthoimagery_for_logs_raytracing(
             log_id=log_id,
             label_maps_dir=label_maps_dir,
             avm=avm,
-            timestamp=lidar_timestamp,
+            timestamp=lidar_timestamp_ns,
             all_city_pts=accumulated_city_pts,
             all_rgb_vals=accumulated_rgb_vals,
             city_pts_w_reflectance=None,
         )
-        # update latest
-        egocenter_last_rendering = ego_center
 
 
 def render_orthoimagery_for_logs_noraytracing(
@@ -303,7 +320,7 @@ def render_orthoimagery_for_logs_noraytracing(
     im_fpath_cname_ts_tuples = []
 
     # for each camera frustum
-    for camera_name in RING_CAMERA_LIST:
+    for camera_name in ORDERED_RING_CAMERA_LIST:
         logger.info(f"On camera {camera_name}")
 
         cam_im_fpaths = dataloader.get_ordered_log_cam_fpaths(log_id, camera_name)
@@ -352,10 +369,10 @@ def render_orthoimagery_for_logs_noraytracing(
             logger.info("missing camera pose")
             continue
 
-        lidar_timestamp = Path(lidar_fpath).stem
-        lidar_timestamp = int(lidar_timestamp)
+        lidar_timestamp_ns = Path(lidar_fpath).stem
+        lidar_timestamp_ns = int(lidar_timestamp_ns)
 
-        l_city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id=log_id, timestamp_ns=lidar_timestamp)
+        l_city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id=log_id, timestamp_ns=lidar_timestamp_ns)
         if l_city_SE3_egovehicle is None:
             logger.info("missing LiDAR pose")
             continue
@@ -378,7 +395,7 @@ def render_orthoimagery_for_logs_noraytracing(
                 log_id=log_id,
                 dataloader=dataloader,
                 cam_timestamp=cam_timestamp,
-                lidar_timestamp=lidar_timestamp,
+                lidar_timestamp_ns=lidar_timestamp_ns,
                 lidar_pts=lidar_pts,
                 camera_name=camera_name,
                 rgb_img=rgb_img,
@@ -392,8 +409,8 @@ def render_orthoimagery_for_logs_noraytracing(
             all_rgb_vals = None
 
         # have all frustums been seen once yet?
-        if len(frustums_seen) < len(RING_CAMERA_LIST):
-            print(f"Only {len(frustums_seen)} of {len(RING_CAMERA_LIST)} frustums seen.")
+        if len(frustums_seen) < len(ORDERED_RING_CAMERA_LIST):
+            print(f"Only {len(frustums_seen)} of {len(ORDERED_RING_CAMERA_LIST)} frustums seen.")
             continue
 
         # Alternative: could instead filter based on the sparsity of the un-interpolated image
@@ -614,15 +631,15 @@ def load_localized_log_reflectance_values(
     all_city_pts_w_refl = np.zeros((0, 4))
 
     lidar_fpaths = dataloader.get_ordered_log_lidar_fpaths(log_id=log_id)
-    lidar_timestamps = [int(p.stem) for p in lidar_fpaths]
-    for lidar_timestamp in lidar_timestamps:
+    lidar_timestamps_ns = [int(p.stem) for p in lidar_fpaths]
+    for lidar_timestamp_ns in lidar_timestamps_ns:
 
-        city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id=log_id, timestamp_ns=lidar_timestamp)
+        city_SE3_egovehicle = dataloader.get_city_SE3_ego(log_id=log_id, timestamp_ns=lidar_timestamp_ns)
         if city_SE3_egovehicle is None:
             logger.info("Missing pose")
             continue
 
-        lidar_fpath = Path(dataset_dir) / log_id / "lidar" / f"{lidar_timestamp}.feather"
+        lidar_fpath = Path(dataset_dir) / log_id / "lidar" / f"{lidar_timestamp_ns}.feather"
         # load with associated LiDAR intensity
         sweep_ego = Sweep.from_feather(lidar_fpath)
         ego_xyz = sweep_ego.xyz
@@ -637,7 +654,7 @@ def load_localized_log_reflectance_values(
                 lidar_pts=ego_xyz,
                 loader=dataloader,
                 log_id=log_id,
-                lidar_timestamp=lidar_timestamp,
+                lidar_timestamp_ns=lidar_timestamp_ns,
                 label_maps_dir=label_maps_dir,
             )
         elif config.filter_ground_with_map:

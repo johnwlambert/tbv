@@ -3,17 +3,17 @@ EgoviewRenderingConfig:
 
     _target_: tbv.rendering_config.EgoviewRenderingConfig
     # could differentiate between CPU and GPU processes
-    num_processes: 4
+    num_processes: 8
 
     # Hyperparameters
-    render_vector_map_only: False
     render_reflectance: False
     recompute_segmentation: False
 
     range_m: 20 # 20 m in all directions
 
     tbv_dataroot: /Users/johnlambert/Downloads/tbv_dataset
-    rendered_dataset_dir: /Users/johnlambert/Downloads/tbv_dataset/rendered_egoview_2022_03_29
+    rendered_dataset_dir: /Users/johnlambert/Downloads/tbv_dataset/rendered_egoview_2022_03_26_evaltimestamps
+    seamseg_output_dataroot: /Users/johnlambert/Downloads/tbv_dataset/seamseg_output
 
     render_test_set_only: True
     jitter_vector_map: True

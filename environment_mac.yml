@@ -48,5 +48,7 @@ dependencies:
   - pip:
     - av2==0.1.0
     - omegaconf
-    - open3d>=0.13.0
+    - seaborn
     - scipy>=1.6.0
+    - scikit-image # needed for seamseg
+    - umsgpack # needed for seamseg

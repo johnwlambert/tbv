@@ -21,7 +21,6 @@ See reference:
 """
 
 import os
-import pdb
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -47,7 +46,7 @@ def get_gradcam_results(
     target_layer_names: List[str],
     use_cuda: bool,
 ) -> None:
-    """
+    """Analyze model output by visualizing image saliency via GradCAM.
 
     Args:
         log_id:
