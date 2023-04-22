@@ -86,7 +86,7 @@ Next, install `mseg-semantic` anywhere on your machine using:
 git clone https://github.com/mseg-dataset/mseg-semantic.git
 pip install -e .
 ```
-Next, install `av2` ([`av2-api`](https://github.com/argoai/av2-api/blob/main/README.md) is the official repo for Argoverse 2.0):
+Next, install `av2` ([`av2-api`](https://github.com/argoverse/av2-api/blob/main/README.md) is the official repo for Argoverse 2.0):
 ```bash
 pip install av2==0.1.0
 ```
