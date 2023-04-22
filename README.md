@@ -1,9 +1,9 @@
 ## Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection (NeurIPS '21, Official Repo)
 [John Lambert](https://johnwlambert.github.io/), [James Hays](https://www.cc.gatech.edu/~hays/)
 
-This repository contains the source code for training and evaluating models described in the NeurIPS '21 paper *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection*. [[Paper]](https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/6f4922f45568161a8cdf4ad2299f6d23-Paper-round2.pdf) [[Supplementary Material]](https://openreview.net/attachment?id=cXCZnLjDm4s&name=supplementary_material)
+This repository contains the source code for training and evaluating models described in the NeurIPS '21 paper *Trust, but Verify: Cross-Modality Fusion for HD Map Change Detection*. [[arXiv]](https://arxiv.org/abs/2212.07312) [[Project Site & Videos]](https://johnwlambert.github.io/tbv-dataset/)
 
-The Trust but Verify (TbV) dataset is publicly available for download, as part of the [**Argoverse 2.0** family of datasets](https://www.argoverse.org/av2.html). Download instructions can be found [here](https://github.com/argoai/av2-api/blob/main/src/av2/datasets/tbv/README.md#downloading-tbv). You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
+The Trust but Verify (TbV) dataset is publicly available for download, as part of the [**Argoverse 2.0** family of datasets](https://www.argoverse.org/av2.html). Download instructions can be found [here](https://argoverse.github.io/user-guide/datasets/map_change_detection.html#downloading-tbv). You can find a short invited talk at the CVPR 2021 VOCVALC workshop summarizing our work [here on Youtube](https://youtu.be/JeTZbCuyeM8?t=3735).
 
 ## Table of Contents
 
@@ -86,7 +86,7 @@ Next, install `mseg-semantic` anywhere on your machine using:
 git clone https://github.com/mseg-dataset/mseg-semantic.git
 pip install -e .
 ```
-Next, install `av2` ([`av2-api`](https://github.com/argoai/av2-api/blob/main/README.md) is the official repo for Argoverse 2.0):
+Next, install `av2` ([`av2-api`](https://github.com/argoverse/av2-api/blob/main/README.md) is the official repo for Argoverse 2.0):
 ```bash
 pip install av2==0.1.0
 ```
@@ -108,7 +108,7 @@ pip install dist/tbv_raytracing-0.0.1-cp310-cp310-linux_x86_64.whl
 <a name='download-dataset'></a>
 ## Downloading the dataset
 
-Download the dataset per the instructions found [here](https://github.com/argoai/av2-api/blob/main/src/av2/datasets/tbv/README.md#downloading-tbv).
+Download the dataset per the instructions found [here](https://argoverse.github.io/user-guide/datasets/map_change_detection.html#downloading-tbv).
 
 Create a folder, and then `logs/`
 
